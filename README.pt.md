@@ -9,6 +9,8 @@
 Entrega de código para hospedagem compartilhada com o
 [RUSH](https://github.com/rushphp/rush).
 
+> **Pré-1.0:** releases minor podem incluir mudanças incompatíveis.
+
 ## 📦 Instalação
 
 ```bash

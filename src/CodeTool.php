@@ -13,7 +13,7 @@ use Rush\Tool\Code\Command\RollbackCommand;
 
 final class CodeTool implements ToolInterface
 {
-    public const VERSION = '1.0.0';
+    public const VERSION = '0.1.0';
 
 
     public function key(): string

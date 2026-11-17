@@ -118,7 +118,7 @@ test('code tool registers its commands', function () {
         'code promote',
         'code releases',
         'code rollback',
-    ]);
+    ])->and($tool->version())->toBe('0.1.0');
 });
 
 
