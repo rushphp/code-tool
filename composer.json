@@ -1,0 +1,55 @@
+{
+    "name": "rushphp/code-tool",
+    "description": "RUSH code tool. Shared-host code delivery: check, push, promote, release and rollback.",
+    "type": "library",
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "RUSHphp",
+            "homepage": "https://github.com/rushphp"
+        }
+    ],
+    "keywords": [
+        "rush",
+        "cli",
+        "deploy",
+        "release",
+        "shared-hosting",
+        "automation"
+    ],
+    "support": {
+        "issues": "https://github.com/rushphp/code-tool/issues",
+        "source": "https://github.com/rushphp/code-tool"
+    },
+    "autoload": {
+        "psr-4": {
+            "Rush\\Tool\\Code\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "require": {
+        "php": "^8.3",
+        "rushphp/contract": "^1.0",
+        "rushphp/support": "^1.0"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.2",
+        "pestphp/pest": "^3.8",
+        "rushphp/rush": "^1.0"
+    },
+    "scripts": {
+        "stan": "phpstan analyse",
+        "test": "pest"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    }
+}

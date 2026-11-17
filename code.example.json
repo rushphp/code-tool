@@ -1,0 +1,49 @@
+{
+  "global": {
+    "ssh": {
+      "host": "example.com",
+      "port": 22,
+      "user": "deploy",
+      "auth": {
+        "type": "key",
+        "file": "auth/deploy_ed25519"
+      }
+    },
+    "root": {
+      "base": "/home/deploy/domains/example.com"
+    },
+    "preserve": [
+      "/.well-known/***"
+    ],
+    "keep": {
+      "backup": 3,
+      "release": 3,
+      "event": 30
+    }
+  },
+  "targets": {
+    "development": {
+      "root": {
+        "dir": "dev"
+      },
+      "webroot": "/home/deploy/domains/example.com/public_html/dev",
+      "url": "https://dev.example.com"
+    },
+    "staging": {
+      "root": {
+        "dir": "staging"
+      },
+      "webroot": "/home/deploy/domains/example.com/public_html/staging",
+      "url": "https://test.example.com"
+    },
+    "production": {
+      "webroot": "/home/deploy/domains/example.com/public_html",
+      "url": "https://example.com",
+      "keep": {
+        "backup": 5,
+        "release": 5,
+        "event": 50
+      }
+    }
+  }
+}
