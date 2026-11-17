@@ -23,7 +23,7 @@ final class CodeTool implements ToolInterface
 
     public function name(): string
     {
-        return 'Code';
+        return 'code';
     }
 
     public function description(): string

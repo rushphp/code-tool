@@ -3,55 +3,8 @@
 namespace Tests;
 
 use Rush\Contract\CommandInterface;
-use Rush\Contract\InputInterface;
-use Rush\Contract\Option;
-use Rush\Contract\OutputInterface;
 use Rush\Contract\ToolInterface;
 use Rush\Manager\Application;
-
-
-final class RecordingCommand implements CommandInterface
-{
-    /** @param list<Option> $options */
-    public function __construct(
-        protected string $commandName,
-        protected array $options = [],
-        protected int $exitCode = 0,
-    ) {
-    }
-
-
-    public function name(): string
-    {
-        return $this->commandName;
-    }
-
-    public function description(): string
-    {
-        return 'recording command';
-    }
-
-    public function usage(): string
-    {
-        return 'rush '. $this->commandName;
-    }
-
-    /** @return list<Option> */
-    public function options(): array
-    {
-        return $this->options;
-    }
-
-    public function run(InputInterface $input, OutputInterface $output): int
-    {
-        $output->line('command='. $this->commandName);
-        $output->line('name='. ($input->string('name') ?? ''));
-        $output->line('flag='. ($input->bool('flag') ? '1' : '0'));
-        $output->line('args='. implode(',', $input->arguments()));
-
-        return $this->exitCode;
-    }
-}
 
 
 final class CliFixtures
@@ -83,7 +36,7 @@ final class CliFixtures
 
             public function name(): string
             {
-                return 'Code';
+                return 'code';
             }
 
             public function description(): string
