@@ -8,6 +8,7 @@ use Rush\Contract\InputInterface;
 use Rush\Contract\OutputInterface;
 use Rush\Tool\Code\Config;
 use Rush\Tool\Code\Deployer;
+use Rush\Tool\Code\Layout;
 use Rush\Support\Operator;
 use Rush\Support\OperatorFile;
 use Rush\Tool\Code\Release\ReleaseSync;
@@ -18,6 +19,8 @@ use Rush\Tool\Code\Target;
 abstract class CommandAbstract implements CommandInterface
 {
     private ?Config $config = null;
+
+    private ?Layout $layout = null;
 
 
     public function __construct(
@@ -66,6 +69,12 @@ abstract class CommandAbstract implements CommandInterface
     }
 
 
+    protected function layout(): Layout
+    {
+        return $this->layout ??= Layout::fromProject($this->projectRoot);
+    }
+
+
     protected function operator(): Operator
     {
         return OperatorFile::load($this->projectRoot);
@@ -86,12 +95,16 @@ abstract class CommandAbstract implements CommandInterface
 
     protected function deployer(Target $target, OutputInterface $output): Deployer
     {
+        $layout = $this->layout();
+        $layout->assertTargetCompatible($target);
+
         return new Deployer(
             $this->projectRoot,
             $target,
             $this->shell(),
             $output,
             $this->operator(),
+            $layout,
         );
     }
 

@@ -45,6 +45,8 @@ class Deployer
 
     private readonly EventWriter $events;
 
+    private readonly Layout $layout;
+
     private bool $hasRsync = false;
 
 
@@ -54,15 +56,17 @@ class Deployer
         private readonly Shell $shell,
         private readonly OutputInterface $output,
         private readonly Operator $operator,
+        ?Layout $layout = null,
     ) {
+        $this->layout = $layout ?? Layout::fromProject($projectRoot);
         $this->ssh = new Ssh($shell);
-        $this->maintenance = new Maintenance($this->ssh);
+        $this->maintenance = new Maintenance($this->ssh, $this->layout);
         $this->scp = new Scp($target, $shell);
         $this->remote = new RemoteFiles($target, $this->ssh);
-        $this->snapshots = new SnapshotStore($target, $this->ssh);
-        $this->transfer = new Transfer($projectRoot, $target, $shell, $this->ssh, $this->scp, $output);
-        $this->preflight = new Preflight($projectRoot, $target, $shell, $this->ssh, $this->remote, $output);
-        $this->publisher = new ReleasePublisher($projectRoot, $target, $shell, $this->ssh, $this->scp, $this->remote, $output);
+        $this->snapshots = new SnapshotStore($target, $this->ssh, $this->layout);
+        $this->transfer = new Transfer($projectRoot, $target, $shell, $this->ssh, $this->scp, $output, $this->layout);
+        $this->preflight = new Preflight($projectRoot, $target, $shell, $this->ssh, $this->remote, $output, $this->layout);
+        $this->publisher = new ReleasePublisher($projectRoot, $target, $shell, $this->ssh, $this->scp, $this->remote, $output, $this->layout);
         $this->verifier = new Verifier($target, $shell, $output);
         $this->events = new EventWriter($target, $operator, $output, $projectRoot, $shell);
     }
@@ -103,7 +107,8 @@ class Deployer
             $previousReleaseId = $this->remote->currentReleaseId();
 
             $build = $this->buildVendor();
-            $releaseArchive = $this->publisher->createArchive($build['vendor']);
+            $vendor = $build['vendor'] ?? null;
+            $releaseArchive = $this->publisher->createArchive($vendor);
             $artifactHash = (new ArtifactVerifier())->hash($releaseArchive);
 
             $manifest = new ReleaseManifest(
@@ -129,7 +134,7 @@ class Deployer
             $snapshot = $this->snapshots->create($manifest->toArray(), $previousReleaseId);
             $this->out('backup: '. $snapshot);
 
-            $this->transfer->run($build['vendor'], $this->hasRsync);
+            $this->transfer->run($vendor, $this->hasRsync);
 
             $this->out('disabling maintenance');
             $this->maintenance->disable($this->target);
@@ -284,23 +289,69 @@ class Deployer
     /**
      * @return array{dir:string,vendor:string}
      */
-    private function buildVendor(): array
+    /** @return null|array{dir: string, vendor: string} */
+    private function buildVendor(): ?array
     {
+        $build = $this->layout->build();
+
+        if ( ! $build['composer']) {
+            return null;
+        }
+
         $directory = FileSystem::temporaryDirectory();
 
         try
         {
-            FileSystem::copyFile($this->projectRoot .'/composer.json', $directory .'/composer.json');
-            FileSystem::copyFile($this->projectRoot .'/composer.lock', $directory .'/composer.lock');
-            FileSystem::copyDir($this->projectRoot .'/application', $directory .'/application', ['storage', 'env.json']);
+            foreach ($build['include'] as $include)
+            {
+                $source = $this->projectRoot .'/'. $include;
 
-            $this->out('build vendor: composer install --no-dev --classmap-authoritative');
+                if (is_file($source)) {
+                    FileSystem::copyFile($source, $directory .'/'. $include);
+                    continue;
+                }
 
+                if ( ! is_dir($source)) {
+                    throw new RuntimeException("build include missing: {$include}");
+                }
+
+                FileSystem::copyDir(
+                    $source,
+                    $directory .'/'. $include,
+                    $this->buildExcludes($include, $build['exclude']),
+                );
+            }
+
+            foreach (['composer.json', 'composer.lock'] as $file)
+            {
+                if ( ! is_file($directory .'/'. $file)) {
+                    throw new RuntimeException("missing build file: {$file}");
+                }
+            }
+
+            $platform = $this->buildPlatform($build['platform']);
             $result = $this->shell->run(
-                ['composer', 'install', '--no-dev', '--classmap-authoritative', '--no-interaction', '--no-progress'],
+                ['composer', 'config', 'platform.php', $platform],
                 null,
                 $directory,
             );
+
+            if ( ! $result->ok()) {
+                $detail = trim($result->stderr) !== '' ? trim($result->stderr) : trim($result->stdout);
+
+                throw new RuntimeException("composer failed:\n". $detail);
+            }
+
+            $command = [
+                'composer', 'install',
+                ...$build['flags'],
+                '--no-interaction',
+                '--no-progress',
+            ];
+
+            $this->out('build vendor: '. implode(' ', $command));
+
+            $result = $this->shell->run($command, null, $directory);
 
             if ( ! $result->ok())
             {
@@ -323,6 +374,44 @@ class Deployer
             FileSystem::removeDir($directory);
             throw $error;
         }
+    }
+
+
+    private function buildPlatform(string $platform): string
+    {
+        if ($platform !== 'remote') {
+            return $platform;
+        }
+
+        $probe = (new \Rush\Tool\Code\Requirements\WebProbe())->inspect($this->target, $this->shell);
+
+        return $probe['php'];
+    }
+
+
+    /**
+     * @param list<string> $buildExclude
+     * @return list<string>
+     */
+    private function buildExcludes(string $include, array $buildExclude): array
+    {
+        $excludes = $this->layout->excludesFor($include);
+
+        foreach ($buildExclude as $exclude)
+        {
+            $exclude = trim($exclude, '/');
+
+            if ($exclude === $include) {
+                $excludes[] = '*';
+                continue;
+            }
+
+            if (str_starts_with($exclude, $include .'/')) {
+                $excludes[] = substr($exclude, strlen($include) + 1);
+            }
+        }
+
+        return array_values(array_unique($excludes));
     }
 
 

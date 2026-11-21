@@ -4,6 +4,7 @@ namespace Rush\Tool\Code\Preflight;
 
 use RuntimeException;
 use Rush\Contract\OutputInterface;
+use Rush\Tool\Code\Layout;
 use Rush\Tool\Code\Remote\RemoteFiles;
 use Rush\Tool\Code\Requirements\ComposerRequirements;
 use Rush\Tool\Code\Requirements\WebProbe;
@@ -15,7 +16,8 @@ use Rush\Tool\Code\Target;
 
 final class Preflight
 {
-    private bool $localEnvExists = false;
+    /** @var list<string> */
+    private array $missingEnv = [];
 
 
     public function __construct(
@@ -25,6 +27,7 @@ final class Preflight
         private readonly Ssh $ssh,
         private readonly RemoteFiles $remote,
         private readonly OutputInterface $output,
+        private readonly Layout $layout,
     ) {
     }
 
@@ -35,35 +38,51 @@ final class Preflight
 
         $this->out('check');
 
-        foreach (['composer.json', 'composer.lock'] as $file)
-        {
-            if ( ! is_file($this->projectRoot .'/'. $file))
-            {
-                throw new RuntimeException("missing file: {$file}");
+        if (version_compare(PHP_VERSION, $this->layout->phpMin(), '<')) {
+            throw new RuntimeException(
+                'local PHP '. PHP_VERSION .' is below the required '. $this->layout->phpMin(),
+            );
+        }
+
+        $build = $this->layout->build();
+
+        if ($build['composer']) {
+            foreach (['composer.json', 'composer.lock'] as $file) {
+                if ( ! is_file($this->projectRoot .'/'. $file)) {
+                    throw new RuntimeException("missing file: {$file}");
+                }
             }
         }
 
-        $storage = $target->root .'/application/storage';
-        $upload = $storage .'/upload';
+        $command = 'test -d '. Ssh::quote($target->webroot)
+            .' && test -w '. Ssh::quote($target->webroot);
 
-        $command = 'test -d '. Ssh::quote($target->rootBase)
-            .' && test -w '. Ssh::quote($target->rootBase);
+        if ($target->root !== null) {
+            $base = $target->rootBase ?? $target->root;
 
-        if ($target->rootDir !== null)
-        {
-            $command .= ' && { [ -d '. Ssh::quote($target->root) .' ] || mkdir '. Ssh::quote($target->root) .'; }';
+            $command .= ' && test -d '. Ssh::quote($base)
+                .' && test -w '. Ssh::quote($base);
+
+            if ($target->rootDir !== null) {
+                $command .= ' && { [ -d '. Ssh::quote($target->root) .' ] || mkdir '. Ssh::quote($target->root) .'; }';
+            }
+
+            $command .= ' && test -d '. Ssh::quote($target->root)
+                .' && test -w '. Ssh::quote($target->root);
         }
 
-        $command .= ' && test -d '. Ssh::quote($target->root)
-            .' && test -w '. Ssh::quote($target->root)
-            .' && test -d '. Ssh::quote($target->webroot)
-            .' && test -w '. Ssh::quote($target->webroot)
-            .' && { [ ! -d '. Ssh::quote($storage) .' ] || test -w '. Ssh::quote($storage) .'; }'
-            .' && { [ ! -d '. Ssh::quote($upload) .' ] || test -w '. Ssh::quote($upload) .'; }';
+        foreach ($this->layout->writable() as $path) {
+            $resolved = $this->layout->resolve($path, $target);
+            $command .= ' && { [ ! -d '. Ssh::quote($resolved) .' ] || test -w '. Ssh::quote($resolved) .'; }';
+        }
+
+        $state = $target->stateDir();
+
+        $command .= ' && { [ ! -d '. Ssh::quote($state) .' ] || test -w '. Ssh::quote($state) .'; }';
 
         $this->ssh->must($target, $command);
 
-        $this->out('ssh ok, root and webroot are writable');
+        $this->out('ssh ok, paths are writable');
 
         $this->warnAboutEntrypoint();
 
@@ -76,6 +95,7 @@ final class Preflight
 
         $this->checkEnv();
         $this->checkAuth();
+        $this->checkStateProtection();
         $this->checkRequirements();
 
         return $hasRsync;
@@ -84,28 +104,29 @@ final class Preflight
 
     public function assertEnvExists(): void
     {
-        if ($this->localEnvExists) {
+        if ($this->missingEnv === []) {
             return;
         }
 
-        $local = Paths::override($this->projectRoot, $this->target->name, 'application') .'/env.json';
-
         throw new RuntimeException(
-            "missing env for '{$this->target->name}': add {$local}",
+            "missing env for '{$this->target->name}': add ". implode(', ', $this->missingEnv),
         );
     }
 
 
     private function checkEnv(): void
     {
-        $local = Paths::override($this->projectRoot, $this->target->name, 'application') .'/env.json';
+        $this->missingEnv = [];
 
-        $this->localEnvExists = is_file($local);
+        foreach ($this->layout->env() as $entry) {
+            $local = Paths::override($this->projectRoot, $this->target->name, $entry['from']);
 
-        if ( ! $this->localEnvExists) {
-            $this->out(
-                "warning: no env override for '{$this->target->name}'; add {$local}",
-            );
+            if (is_file($local)) {
+                continue;
+            }
+
+            $this->missingEnv[] = $local;
+            $this->out("warning: no env override for '{$this->target->name}'; add {$local}");
         }
     }
 
@@ -125,6 +146,38 @@ final class Preflight
     }
 
 
+    private function checkStateProtection(): void
+    {
+        $webroot = rtrim($this->target->webroot, '/');
+        $state = rtrim($this->target->stateDir(), '/');
+
+        if ( ! str_starts_with($state .'/', $webroot .'/')) {
+            return;
+        }
+
+        $exists = $this->ssh->run(
+            $this->target,
+            'test -f '. Ssh::quote($state .'/current.json') .' && echo yes || echo no',
+        )->output() === 'yes';
+
+        if ( ! $exists) {
+            return;
+        }
+
+        $url = rtrim($this->target->url, '/') .'/.deploy/current.json';
+        $result = $this->shell->run(
+            ['curl', '-sS', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '20', $url],
+        );
+        $status = trim($result->output());
+
+        if ($status === '200') {
+            throw new RuntimeException(
+                '.deploy is publicly accessible: protect '. $state .' in the web server',
+            );
+        }
+    }
+
+
     private function checkRequirements(): void
     {
         $current = $this->remote->readCurrent();
@@ -135,28 +188,37 @@ final class Preflight
             return;
         }
 
-        $requirements = ComposerRequirements::fromFile($this->projectRoot .'/composer.json');
         $probe = (new WebProbe())->inspect($this->target, $this->shell);
-        $requirements->assert($probe);
 
-        $this->out('requirements ok: PHP '. $probe['php']);
+        if (version_compare($probe['php'], $this->layout->phpMin(), '<')) {
+            throw new RuntimeException(
+                'remote PHP '. $probe['php'] .' is below the required '. $this->layout->phpMin(),
+            );
+        }
+
+        if ($this->layout->build()['composer']) {
+            $requirements = ComposerRequirements::fromFile($this->projectRoot .'/composer.json');
+            $requirements->assert($probe);
+            $this->out('requirements ok: PHP '. $probe['php']);
+        }
     }
 
 
     private function warnAboutEntrypoint(): void
     {
-        if (rtrim(dirname($this->target->webroot), '/') === rtrim($this->target->root, '/'))
+        if ($this->target->root !== null
+            && rtrim(dirname($this->target->webroot), '/') === rtrim($this->target->root, '/'))
         {
             return;
         }
 
-        $override = Paths::override($this->projectRoot, $this->target->name, 'public') .'/index.php';
+        $override = Paths::override($this->projectRoot, $this->target->name, $this->layout->entrypoint());
 
         if ( ! is_file($override))
         {
             $this->out(
-                'warning: webroot is not directly under root; add an index.php entrypoint at '
-                .'.rush/code/override/'. $this->target->name .'/public/index.php',
+                'warning: webroot is not directly under root; add an entrypoint at '
+                .'.rush/code/override/'. $this->target->name .'/'. $this->layout->entrypoint(),
             );
         }
     }

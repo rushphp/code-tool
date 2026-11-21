@@ -5,6 +5,9 @@ namespace Rush\Tool\Code;
 use Rush\Contract\CommandInterface;
 use Rush\Contract\ToolInterface;
 use Rush\Tool\Code\Command\CheckCommand;
+use Rush\Tool\Code\Command\LayoutInitCommand;
+use Rush\Tool\Code\Command\LayoutPresetsCommand;
+use Rush\Tool\Code\Command\LayoutValidateCommand;
 use Rush\Tool\Code\Command\PromoteCommand;
 use Rush\Tool\Code\Command\PushCommand;
 use Rush\Tool\Code\Command\ReleasesCommand;
@@ -45,12 +48,15 @@ final class CodeTool implements ToolInterface
             'code promote' => new PromoteCommand($projectRoot),
             'code releases' => new ReleasesCommand($projectRoot),
             'code rollback' => new RollbackCommand($projectRoot),
+            'code layout:init' => new LayoutInitCommand($projectRoot),
+            'code layout:presets' => new LayoutPresetsCommand($projectRoot),
+            'code layout:validate' => new LayoutValidateCommand($projectRoot),
         ];
     }
 
     /** @return list<string> */
     public function install(string $projectRoot): array
     {
-        return (new Initializer($projectRoot))->run();
+        return (new Initializer($projectRoot, layout: Layout::fromProject($projectRoot)))->run();
     }
 }

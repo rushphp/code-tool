@@ -8,6 +8,7 @@ use Rush\Contract\OutputInterface;
 use Rush\Tool\Code\Backup\SnapshotStore;
 use Rush\Tool\Code\Event\EventWriter;
 use Rush\Tool\Code\Lock\TargetLock;
+use Rush\Tool\Code\Layout;
 use Rush\Tool\Code\Maintenance;
 use Rush\Support\Operator;
 use Rush\Tool\Code\Preflight\Preflight;
@@ -54,15 +55,16 @@ final class Promoter
         private readonly Shell $shell,
         private readonly OutputInterface $output,
         private readonly Operator $operator,
+        private readonly Layout $layout,
     ) {
         $this->ssh = new Ssh($shell);
-        $this->maintenance = new Maintenance($this->ssh);
+        $this->maintenance = new Maintenance($this->ssh, $layout);
         $this->scp = new Scp($target, $shell);
         $this->remote = new RemoteFiles($target, $this->ssh);
-        $this->snapshots = new SnapshotStore($target, $this->ssh);
-        $this->transfer = new Transfer($projectRoot, $target, $shell, $this->ssh, $this->scp, $output);
-        $this->preflight = new Preflight($projectRoot, $target, $shell, $this->ssh, $this->remote, $output);
-        $this->publisher = new ReleasePublisher($projectRoot, $target, $shell, $this->ssh, $this->scp, $this->remote, $output);
+        $this->snapshots = new SnapshotStore($target, $this->ssh, $layout);
+        $this->transfer = new Transfer($projectRoot, $target, $shell, $this->ssh, $this->scp, $output, $layout);
+        $this->preflight = new Preflight($projectRoot, $target, $shell, $this->ssh, $this->remote, $output, $layout);
+        $this->publisher = new ReleasePublisher($projectRoot, $target, $shell, $this->ssh, $this->scp, $this->remote, $output, $layout);
         $this->verifier = new Verifier($target, $shell, $output);
         $this->events = new EventWriter($target, $operator, $output, $projectRoot, $shell);
     }
@@ -91,7 +93,7 @@ final class Promoter
         $started = false;
         $snapshot = null;
         $hasRsync = false;
-        $remoteArchive = $this->target->root .'/.deploy/incoming-release-'. bin2hex(random_bytes(4)) .'.tar.gz';
+        $remoteArchive = $this->target->stateDir() .'/incoming-release-'. bin2hex(random_bytes(4)) .'.tar.gz';
 
         try {
             $hasRsync = $this->preflight->check();
@@ -190,7 +192,7 @@ final class Promoter
 
             $this->removeSourceDeployment();
 
-            $this->remote->writeJson($this->target->root .'/.deploy/current.json', [
+            $this->remote->writeJson($this->target->stateDir() .'/current.json', [
                 'releaseId' => $current['releaseId'] ?? null,
                 'contentHash' => $current['contentHash'] ?? null,
                 'version' => $current['version'] ?? null,
@@ -225,51 +227,134 @@ final class Promoter
     private function extractRelease(string $remoteArchive): void
     {
         $target = $this->target;
+        $commands = [];
 
-        $delete = 'find '. Ssh::quote($target->webroot) .' -mindepth 1 -maxdepth 1'
-            .' ! -name '. Ssh::quote('.maintenance');
+        if ($target->root !== null) {
+            $commands[] = $this->rootDeleteCommand();
+            $commands[] = 'rm -rf '. Ssh::quote($target->root .'/vendor');
 
-        foreach ($target->nestedWebroots as $entry) {
-            $delete .= ' ! -name '. Ssh::quote($entry);
+            if ($this->layout->publishFor('root') !== []) {
+                $commands[] = 'tar -xzf '. Ssh::quote($remoteArchive)
+                    .' -C '. Ssh::quote($target->root)
+                    .' --strip-components=1 root';
+            }
         }
 
-        $delete .= ' -exec rm -rf {} +';
+        $commands[] = $this->webrootDeleteCommand();
 
-        $applicationDelete = 'find '. Ssh::quote($target->root .'/application') .' -mindepth 1 -maxdepth 1'
-            .' ! -name '. Ssh::quote('storage')
-            .' -exec rm -rf {} +';
+        if ($this->layout->publishFor('webroot') !== []) {
+            $commands[] = 'tar -xzf '. Ssh::quote($remoteArchive)
+                .' -C '. Ssh::quote($target->webroot)
+                .' --strip-components=1 webroot';
+        }
 
-        $this->ssh->must(
-            $target,
-            'rm -rf '. Ssh::quote($target->root .'/vendor')
-            .' && '. $applicationDelete
-            .' && tar -xzf '. Ssh::quote($remoteArchive)
-            .' -C '. Ssh::quote($target->root)
-            .' application vendor composer.json composer.lock'
-            .' && '. $delete
-            .' && tar -xzf '. Ssh::quote($remoteArchive)
-            .' -C '. Ssh::quote($target->webroot)
-            .' --strip-components=1 public'
-            .' && rm -f '. Ssh::quote($remoteArchive),
-        );
+        $commands[] = 'rm -f '. Ssh::quote($remoteArchive);
+
+        $this->ssh->must($target, implode(' && ', $commands));
     }
 
 
     private function removeSourceDeployment(): void
     {
         $target = $this->target;
+        $commands = [];
 
-        $delete = 'find '. Ssh::quote($target->webroot) .' -mindepth 1 -maxdepth 1'
-            .' ! -name '. Ssh::quote('index.php')
-            .' ! -name '. Ssh::quote('.htaccess')
-            .' -exec rm -rf {} +';
+        foreach ($this->layout->publishFor('root') as $entry) {
+            $commands[] = 'rm -rf '. Ssh::quote($this->layout->resolve($entry['to'], $target));
+        }
 
-        $this->ssh->must(
-            $target,
-            'rm -rf '. Ssh::quote($target->root .'/application')
-            .' '. Ssh::quote($target->root .'/vendor')
-            .' && '. $delete,
-        );
+        if ($target->root !== null) {
+            $commands[] = 'rm -rf '. Ssh::quote($target->root .'/vendor');
+        }
+
+        $commands[] = $this->webrootDeleteCommand(true);
+
+        $this->ssh->must($target, implode(' && ', $commands));
+    }
+
+
+    private function rootDeleteCommand(): string
+    {
+        $commands = [];
+
+        foreach ($this->layout->publishFor('root') as $entry) {
+            $destination = $this->layout->resolve($entry['to'], $this->target);
+            $source = rtrim($this->projectRoot, '/') .'/'. $entry['from'];
+
+            if (is_dir($source)) {
+                $commands[] = $this->deleteContents($destination, $this->rootPreserve($destination));
+                continue;
+            }
+
+            $commands[] = 'rm -f '. Ssh::quote($destination);
+        }
+
+        return $commands === [] ? 'true' : implode(' && ', $commands);
+    }
+
+
+    private function webrootDeleteCommand(bool $preserveStub = false): string
+    {
+        $preserve = ['.deploy', '.maintenance', ...$this->target->nestedWebroots];
+
+        if ($preserveStub) {
+            $preserve[] = 'index.php';
+            $preserve[] = '.htaccess';
+        }
+
+        foreach ([...$this->layout->preserve(), ...$this->target->preserve] as $pattern) {
+            $name = explode('/', ltrim($pattern, '/'))[0];
+
+            if ($name !== '') {
+                $preserve[] = $name;
+            }
+        }
+
+        return $this->deleteContents($this->target->webroot, $preserve);
+    }
+
+
+    /** @return list<string> */
+    private function rootPreserve(string $destination): array
+    {
+        $preserve = [];
+
+        if ($this->target->root === $destination) {
+            $preserve[] = '.deploy';
+        }
+
+        foreach ([...$this->layout->writable(), ...array_map(
+            static fn (array $env): string => $env['to'],
+            $this->layout->env(),
+        )] as $protected) {
+            $path = $this->layout->resolve($protected, $this->target);
+
+            if ($path === $destination) {
+                continue;
+            }
+
+            if (str_starts_with($path .'/', rtrim($destination, '/') .'/')) {
+                $relative = substr($path, strlen(rtrim($destination, '/')) + 1);
+                $preserve[] = explode('/', $relative)[0];
+            }
+        }
+
+        return array_values(array_unique($preserve));
+    }
+
+
+    /** @param list<string> $preserve */
+    private function deleteContents(string $directory, array $preserve): string
+    {
+        $command = 'find '. Ssh::quote($directory) .' -mindepth 1 -maxdepth 1';
+
+        foreach (array_values(array_unique($preserve)) as $name) {
+            if ($name !== '') {
+                $command .= ' ! -name '. Ssh::quote($name);
+            }
+        }
+
+        return $command .' -exec rm -rf {} +';
     }
 
 

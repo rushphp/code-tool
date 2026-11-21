@@ -23,8 +23,8 @@ final class RemoteFiles
     {
         $result = $this->ssh->must(
             $this->target,
-            'if [ -f '. Ssh::quote($this->target->root .'/.deploy/current.json') .' ]; '
-            .'then cat '. Ssh::quote($this->target->root .'/.deploy/current.json')
+            'if [ -f '. Ssh::quote($this->target->stateDir() .'/current.json') .' ]; '
+            .'then cat '. Ssh::quote($this->target->stateDir() .'/current.json')
             .'; else printf __MISSING__; fi',
         );
 
@@ -75,13 +75,13 @@ final class RemoteFiles
             $data['promotedFrom'] = $promotedFrom;
         }
 
-        $this->writeJson($this->target->root .'/.deploy/current.json', $data);
+        $this->writeJson($this->target->stateDir() .'/current.json', $data);
     }
 
 
     public function writeCurrentReleaseId(string $releaseId): void
     {
-        $this->writeJson($this->target->root .'/.deploy/current.json', [
+        $this->writeJson($this->target->stateDir() .'/current.json', [
             'releaseId' => $releaseId,
             'status' => 'current',
         ]);
@@ -92,7 +92,7 @@ final class RemoteFiles
     {
         $this->ssh->run(
             $this->target,
-            'rm -f '. Ssh::quote($this->target->root .'/.deploy/current.json'),
+            'rm -f '. Ssh::quote($this->target->stateDir() .'/current.json'),
         );
     }
 

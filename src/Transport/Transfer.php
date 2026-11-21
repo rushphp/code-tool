@@ -3,11 +3,11 @@
 namespace Rush\Tool\Code\Transport;
 
 use Rush\Contract\OutputInterface;
+use Rush\Tool\Code\Layout;
 use Rush\Tool\Code\Remote\Scp;
 use Rush\Tool\Code\Shell;
 use Rush\Tool\Code\Ssh;
 use Rush\Support\FileSystem;
-use Rush\Tool\Code\Support\Paths;
 use Rush\Tool\Code\Target;
 
 
@@ -20,20 +20,18 @@ final class Transfer
         private readonly Ssh $ssh,
         private readonly Scp $scp,
         private readonly OutputInterface $output,
+        private readonly Layout $layout,
     ) {
     }
 
 
-    public function run(string $vendor, bool $hasRsync): void
+    public function run(?string $vendor, bool $hasRsync): void
     {
-        $this->ensureRemoteDirs();
+        $this->ensureRemoteDirs($vendor);
 
-        if ($hasRsync)
-        {
+        if ($hasRsync) {
             $this->transferRsync($vendor);
-        }
-        else
-        {
+        } else {
             $this->transferTar($vendor);
         }
 
@@ -41,49 +39,70 @@ final class Transfer
     }
 
 
-    public function ensureRemoteDirs(): void
+    public function ensureRemoteDirs(?string $vendor = null): void
     {
         $target = $this->target;
-        $directories = [
-            $target->root .'/application',
-            $target->root .'/application/storage/cache',
-            $target->root .'/application/storage/log',
-            $target->root .'/application/storage/session',
-            $target->root .'/application/storage/temp',
-            $target->root .'/application/storage/upload',
-            $target->root .'/vendor',
-            $target->root .'/.deploy',
-            $target->root .'/.deploy/backups',
-            $target->root .'/.deploy/releases',
-            $target->root .'/.deploy/events',
-        ];
+        $directories = [];
+
+        foreach ($this->layout->publish() as $entry) {
+            $destination = $this->layout->resolve($entry['to'], $target);
+            $source = rtrim($this->projectRoot, '/') .'/'. $entry['from'];
+
+            $directories[] = is_dir($source) ? $destination : dirname($destination);
+        }
+
+        foreach ($this->layout->writable() as $path) {
+            $directories[] = $this->layout->resolve($path, $target);
+        }
+
+        if ($vendor !== null) {
+            if ($target->root === null) {
+                throw new \RuntimeException("transport: target '{$target->name}' requires a root for vendor");
+            }
+
+            $directories[] = $target->root .'/vendor';
+        }
+
+        $directories[] = $target->stateDir();
+        $directories[] = $target->stateDir() .'/backups';
+        $directories[] = $target->stateDir() .'/releases';
+        $directories[] = $target->stateDir() .'/events';
 
         $command = 'mkdir -p';
-        foreach ($directories as $directory)
-        {
+
+        foreach (array_values(array_unique(array_filter($directories))) as $directory) {
             $command .= ' '. Ssh::quote($directory);
         }
 
         $this->ssh->must($target, $command);
+        $this->protectStateDir();
     }
 
 
     public function applyOverrides(bool $hasRsync): void
     {
-        foreach ([
-            ['application', Paths::override($this->projectRoot, $this->target->name, 'application'), $this->target->root .'/application'],
-            ['public', Paths::override($this->projectRoot, $this->target->name, 'public'), $this->target->webroot],
-        ] as [$label, $source, $destination])
-        {
-            if ( ! is_dir($source))
-            {
+        foreach ($this->layout->publish() as $entry) {
+            $source = rtrim($this->projectRoot, '/') .'/.rush/code/override/'. $this->target->name .'/'. $entry['from'];
+
+            if ( ! is_dir($source) && ! is_file($source)) {
                 continue;
             }
 
-            $this->out('override '. $label);
+            $destination = $this->layout->resolve($entry['to'], $this->target);
 
-            if ($hasRsync)
-            {
+            $this->out('override '. $entry['from']);
+
+            if (is_file($source)) {
+                if ($hasRsync) {
+                    $this->rsync($this->rsyncArgs($source, $destination, [], false, false));
+                } else {
+                    $this->scp->upload($source, $destination);
+                }
+
+                continue;
+            }
+
+            if ($hasRsync) {
                 $this->rsync($this->rsyncArgs($source .'/', $destination .'/', [], false, false));
                 continue;
             }
@@ -93,103 +112,122 @@ final class Transfer
     }
 
 
-    private function transferRsync(string $vendor): void
+    private function transferRsync(?string $vendor): void
     {
-        $this->out('rsync application');
-        $this->rsync($this->rsyncArgs(
-            $this->projectRoot .'/application/',
-            $this->target->root .'/application/',
-            $this->applicationExcludes(),
-            false,
-        ));
+        foreach ($this->layout->publish() as $entry) {
+            $source = rtrim($this->projectRoot, '/') .'/'. $entry['from'];
+            $destination = $this->layout->resolve($entry['to'], $this->target);
+            $excludes = $this->entryExcludes($entry, $destination);
 
-        $this->out('rsync public');
-        $this->rsync($this->rsyncArgs(
-            $this->projectRoot .'/public/',
-            $this->target->webroot .'/',
-            $this->publicExcludes(),
-            false,
-        ));
+            if ( ! is_dir($source) && ! is_file($source)) {
+                throw new \RuntimeException("transport: missing source: {$entry['from']}");
+            }
 
-        $this->out('rsync vendor');
-        $this->rsync($this->rsyncArgs($vendor .'/', $this->target->root .'/vendor/', [], false));
+            $this->out('rsync '. $entry['from']);
+
+            if (is_dir($source)) {
+                $this->rsync($this->rsyncArgs($source .'/', $destination .'/', $excludes, false));
+                continue;
+            }
+
+            $this->rsync($this->rsyncArgs($source, $destination, $excludes, false, false));
+        }
+
+        if ($vendor !== null) {
+            $root = $this->target->root;
+
+            if ($root === null) {
+                throw new \RuntimeException("transport: target '{$this->target->name}' requires a root for vendor");
+            }
+
+            $this->out('rsync vendor');
+            $this->rsync($this->rsyncArgs($vendor .'/', $root .'/vendor/', [], false, false));
+        }
     }
 
 
-    private function transferTar(string $vendor): void
+    private function transferTar(?string $vendor): void
     {
-        $target = $this->target;
-        $rootArchive = FileSystem::temporaryArchive();
-        $webrootArchive = FileSystem::temporaryArchive();
-        $rootRemote = $target->root .'/.deploy/incoming-root-'. bin2hex(random_bytes(4)) .'.tar.gz';
-        $webrootRemote = $target->root .'/.deploy/incoming-webroot-'. bin2hex(random_bytes(4)) .'.tar.gz';
+        foreach ($this->layout->publish() as $entry) {
+            $source = rtrim($this->projectRoot, '/') .'/'. $entry['from'];
+            $destination = $this->layout->resolve($entry['to'], $this->target);
+            $excludes = $this->entryExcludes($entry, $destination);
 
-        try
-        {
-            $this->shell->mustRun([
-                'tar', '-czf', $rootArchive,
-                '--exclude=application/env.json',
-                '--exclude=application/storage',
-                '-C', $this->projectRoot,
-                'application',
-                '-C', dirname($vendor),
-                'vendor',
-            ]);
-
-            $webrootCommand = ['tar', '-czf', $webrootArchive, '--exclude=.maintenance'];
-
-            foreach ($target->nestedWebroots as $entry)
-            {
-                $webrootCommand[] = '--exclude=./'. $entry;
+            if ( ! is_dir($source) && ! is_file($source)) {
+                throw new \RuntimeException("transport: missing source: {$entry['from']}");
             }
 
-            array_push($webrootCommand, '-C', $this->projectRoot .'/public', '.');
+            if (is_file($source)) {
+                $this->ssh->must($this->target, 'mkdir -p '. Ssh::quote(dirname($destination)));
+                $this->scp->upload($source, $destination);
+                continue;
+            }
 
-            $this->shell->mustRun($webrootCommand);
+            $this->out('tar '. $entry['from']);
 
-            $this->out('tar fallback: uploading');
-            $this->scp->upload($rootArchive, $rootRemote);
-            $this->scp->upload($webrootArchive, $webrootRemote);
+            $archive = FileSystem::temporaryArchive();
+            $base = $this->layout->destination($entry['to'])['base'];
+            $remote = $this->target->stateDir() .'/incoming-'. $base .'-'. bin2hex(random_bytes(4)) .'.tar.gz';
 
-            $this->ssh->must(
-                $target,
-                'tar -xzf '. Ssh::quote($rootRemote) .' -C '. Ssh::quote($target->root)
-                .' && rm -f '. Ssh::quote($rootRemote)
-                .' && tar -xzf '. Ssh::quote($webrootRemote) .' -C '. Ssh::quote($target->webroot)
-                .' && rm -f '. Ssh::quote($webrootRemote),
-            );
+            try {
+                $command = ['tar', '-czf', $archive];
+
+                foreach ($excludes as $exclude) {
+                    $command[] = '--exclude='. $exclude;
+                }
+
+                array_push($command, '-C', $source, '.');
+
+                $this->shell->mustRun($command);
+                $this->scp->upload($archive, $remote);
+
+                $this->ssh->must(
+                    $this->target,
+                    'mkdir -p '. Ssh::quote($destination)
+                    .' && tar -xzf '. Ssh::quote($remote) .' -C '. Ssh::quote($destination)
+                    .' && rm -f '. Ssh::quote($remote),
+                );
+            } finally {
+                if ( ! FileSystem::tryDelete($archive)) {
+                    $this->out('warning: could not remove temporary archive');
+                }
+            }
         }
-        finally
-        {
-            if ( ! FileSystem::tryDelete($rootArchive)) {
-                $this->out('warning: could not remove temporary root archive');
+
+        if ($vendor !== null) {
+            $root = $this->target->root;
+
+            if ($root === null) {
+                throw new \RuntimeException("transport: target '{$this->target->name}' requires a root for vendor");
             }
 
-            if ( ! FileSystem::tryDelete($webrootArchive)) {
-                $this->out('warning: could not remove temporary webroot archive');
-            }
+            $this->secureDirectory($vendor, $root .'/vendor');
         }
     }
 
 
     private function transferTarDirectory(string $source, string $destination): void
     {
-        $archive = FileSystem::temporaryArchive();
-        $remote = $this->target->root .'/.deploy/incoming-'. bin2hex(random_bytes(4)) .'.tar.gz';
+        $this->secureDirectory($source, $destination);
+    }
 
-        try
-        {
+
+    private function secureDirectory(string $source, string $destination): void
+    {
+        $archive = FileSystem::temporaryArchive();
+        $remote = $this->target->stateDir() .'/incoming-'. bin2hex(random_bytes(4)) .'.tar.gz';
+
+        try {
             $this->shell->mustRun(['tar', '-czf', $archive, '-C', $source, '.']);
             $this->scp->upload($archive, $remote);
 
             $this->ssh->must(
                 $this->target,
-                'tar -xzf '. Ssh::quote($remote) .' -C '. Ssh::quote($destination)
+                'mkdir -p '. Ssh::quote($destination)
+                .' && tar -xzf '. Ssh::quote($remote) .' -C '. Ssh::quote($destination)
                 .' && rm -f '. Ssh::quote($remote),
             );
-        }
-        finally
-        {
+        } finally {
             if ( ! FileSystem::tryDelete($archive)) {
                 $this->out('warning: could not remove temporary archive');
             }
@@ -197,29 +235,72 @@ final class Transfer
     }
 
 
-    /**
-     * @return list<string>
-     */
-    private function applicationExcludes(): array
+    private function protectStateDir(): void
     {
-        return ['/env.json', '/storage/'];
+        $webroot = rtrim($this->target->webroot, '/');
+        $state = rtrim($this->target->stateDir(), '/');
+
+        if ( ! str_starts_with($state .'/', $webroot .'/')) {
+            return;
+        }
+
+        $contents = <<<'HTACCESS'
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
+HTACCESS;
+
+        $this->ssh->must(
+            $this->target,
+            'cat > '. Ssh::quote($state .'/.htaccess'),
+            $contents ."\n",
+        );
     }
 
 
     /**
+     * @param array{from: string, to: string} $entry
      * @return list<string>
      */
-    private function publicExcludes(): array
+    private function entryExcludes(array $entry, string $destination): array
     {
-        $excludes = ['/.maintenance', ...$this->target->preserve];
+        $excludes = [...$this->layout->excludesFor($entry['from']), '.deploy'];
+        $base = $this->layout->destination($entry['to'])['base'];
 
-        foreach ($this->target->nestedWebroots as $entry)
-        {
-            $excludes[] = '/'. $entry;
-            $excludes[] = '/'. $entry .'/***';
+        if ($base === 'webroot') {
+            $excludes[] = '.maintenance';
+
+            foreach ([...$this->layout->preserve(), ...$this->target->preserve] as $pattern) {
+                $excludes[] = $pattern;
+            }
+
+            foreach ($this->target->nestedWebroots as $nested) {
+                $excludes[] = '/'. $nested;
+                $excludes[] = '/'. $nested .'/***';
+            }
         }
 
-        return $excludes;
+        foreach ([...$this->layout->writable(), ...array_map(
+            static fn (array $env): string => $env['to'],
+            $this->layout->env(),
+        )] as $protected) {
+            $path = $this->layout->resolve($protected, $this->target);
+
+            if ($path === $destination) {
+                $excludes[] = '*';
+                continue;
+            }
+
+            if (str_starts_with($path .'/', rtrim($destination, '/') .'/')) {
+                $excludes[] = substr($path, strlen(rtrim($destination, '/')) + 1);
+            }
+        }
+
+        return array_values(array_unique($excludes));
     }
 
 
@@ -256,18 +337,15 @@ final class Transfer
             '-e', $ssh,
         ];
 
-        if ($delete)
-        {
+        if ($delete) {
             $args[] = '--delete';
         }
 
-        if ($dryRun)
-        {
+        if ($dryRun) {
             $args[] = '--dry-run';
         }
 
-        foreach ($excludes as $exclude)
-        {
+        foreach ($excludes as $exclude) {
             $args[] = '--exclude='. $exclude;
         }
 

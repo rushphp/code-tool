@@ -1,14 +1,19 @@
 <?php declare(strict_types=1);
 
 use Rush\Tool\Code\Initializer;
+use Tests\DeployFixtures;
 
 
 function deployInitializerRoot(): string
 {
     $root = sys_get_temp_dir() .'/code-install-'. bin2hex(random_bytes(6));
 
-    mkdir($root, 0700, true);
+    mkdir($root .'/application', 0700, true);
+    mkdir($root .'/public', 0700, true);
     file_put_contents($root .'/example.json', '{"global":{},"targets":{}}');
+    file_put_contents($root .'/composer.json', '{}');
+    file_put_contents($root .'/composer.lock', '{}');
+    DeployFixtures::writeLayout($root);
 
     return $root;
 }

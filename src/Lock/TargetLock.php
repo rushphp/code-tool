@@ -45,7 +45,7 @@ final class TargetLock
         for ($attempt = 0; $attempt < 2; $attempt++) {
             $result = $this->ssh->run(
                 $this->target,
-                'mkdir -p '. Ssh::quote($this->target->root .'/.deploy')
+                'mkdir -p '. Ssh::quote($this->target->stateDir())
                 .' && mkdir '. Ssh::quote($directory) .' 2>/dev/null && echo __LOCKED__ || echo __EXISTS__',
             );
 
@@ -133,6 +133,6 @@ final class TargetLock
 
     private function directory(): string
     {
-        return $this->target->root .'/.deploy/lock';
+        return $this->target->stateDir() .'/lock';
     }
 }

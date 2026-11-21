@@ -1,0 +1,26 @@
+{
+  "php": {
+    "min": "8.3"
+  },
+  "publish": [
+    {
+      "from": "public",
+      "to": "$webroot"
+    }
+  ],
+  "env": [],
+  "writable": [],
+  "exclude": [
+    "public/.maintenance",
+    ".deploy"
+  ],
+  "entrypoint": "public/index.php",
+  "preserve": [],
+  "maintenance": {
+    "type": "marker",
+    "path": "$webroot/.maintenance"
+  },
+  "build": {
+    "composer": false
+  }
+}

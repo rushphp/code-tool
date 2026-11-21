@@ -55,8 +55,11 @@ final class PromoteCommand extends CommandAbstract
 
         $destination = $config->target($next);
         $operator = $this->operator();
-        $sourcePromoter = new Promoter($this->projectRoot, $source, $this->shell(), $output, $operator);
-        $destinationPromoter = new Promoter($this->projectRoot, $destination, $this->shell(), $output, $operator);
+        $layout = $this->layout();
+        $layout->assertTargetCompatible($source);
+        $layout->assertTargetCompatible($destination);
+        $sourcePromoter = new Promoter($this->projectRoot, $source, $this->shell(), $output, $operator, $layout);
+        $destinationPromoter = new Promoter($this->projectRoot, $destination, $this->shell(), $output, $operator, $layout);
         $release = $sourcePromoter->export();
 
         try {

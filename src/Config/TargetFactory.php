@@ -38,14 +38,17 @@ final class TargetFactory
         $rootPath = self::rootPath($name, $data['root'] ?? null);
         $rootDirectory = $rootPath['root'];
 
-        if ($rootDirectory === $webroot)
+        if ($rootDirectory !== null)
         {
-            throw new RuntimeException("config: target '{$name}' must not use the same 'root' and 'webroot'");
-        }
+            if ($rootDirectory === $webroot)
+            {
+                throw new RuntimeException("config: target '{$name}' must not use the same 'root' and 'webroot'");
+            }
 
-        if (str_starts_with($rootDirectory .'/', $webroot .'/'))
-        {
-            throw new RuntimeException("config: target '{$name}' must not place 'root' inside 'webroot'");
+            if (str_starts_with($rootDirectory .'/', $webroot .'/'))
+            {
+                throw new RuntimeException("config: target '{$name}' must not place 'root' inside 'webroot'");
+            }
         }
 
         $url = self::requireString($data, 'url');
@@ -157,8 +160,14 @@ final class TargetFactory
     /**
      * @return array{root:string, base:string, dir:?string}
      */
+    /** @return array{root: ?string, base: ?string, dir: ?string} */
     private static function rootPath(string $name, mixed $value): array
     {
+        if ($value === null)
+        {
+            return ['root' => null, 'base' => null, 'dir' => null];
+        }
+
         if ( ! is_array($value))
         {
             throw new RuntimeException("config: target '{$name}' requires a 'root' object");

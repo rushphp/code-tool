@@ -21,6 +21,7 @@ test('rsync applies password auth and env', function () {
     file_put_contents($password, 'secret');
     mkdir($root .'/.rush/code/override/staging/public', 0700, true);
     file_put_contents($root .'/.rush/code/override/staging/public/index.php', 'test');
+    DeployFixtures::writeLayout($root);
 
     $shell = new FakeShell(fn (): ShellResult => new ShellResult(0, '', ''));
     $target = DeployFixtures::target(auth: new SshAuth(SshAuth::TYPE_PASS, $password));
@@ -31,6 +32,7 @@ test('rsync applies password auth and env', function () {
         new Ssh($shell),
         new Scp($target, $shell),
         DeployFixtures::output(),
+        DeployFixtures::layout($root),
     );
 
     try {

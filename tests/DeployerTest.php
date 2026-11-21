@@ -28,6 +28,8 @@ function deployDeployerWorkspace(): string
     file_put_contents($root .'/.rush/code/override/staging/public/.htaccess', 'Options -Indexes');
     file_put_contents($root .'/.rush/code/override/staging/application/env.json', '{"environment":"staging"}');
 
+    DeployFixtures::writeLayout($root);
+
     return $root;
 }
 
@@ -113,6 +115,11 @@ function deployDeployerShell(
             if ($failComposer)
             {
                 return new ShellResult(1, '', 'composer boom');
+            }
+
+            if (in_array('config', $command, true))
+            {
+                return new ShellResult(0, '', '');
             }
 
             if ($composerNoVendor)
@@ -523,10 +530,10 @@ test('push stores a release manifest, event and current marker', function () {
         ->and($manifests)->toHaveCount(1)
         ->and($events)->not->toBeFalse()
         ->and($events)->toHaveCount(1)
-        ->and($calls)->toContain('storage.tar.gz')
+        ->and($calls)->toContain('root.tar.gz')
+        ->and($calls)->toContain('webroot.tar.gz')
         ->and($calls)->toContain('current.json')
         ->and($calls)->toContain('release.tar.gz')
-        ->and($calls)->toContain('--exclude=application/env.json')
         ->and($calls)->not->toContain('backups/staging')
         ->and($manifestData['artifactHash'] ?? null)->toBe('sha256:'. hash('sha256', ''))
         ->and($manifestData['createdBy']['name'] ?? null)->toBe('Test Operator')
@@ -545,7 +552,7 @@ test('rollback restores storage when the backup contains it', function () {
     $deployer->rollback(null);
 
     expect(DeployFixtures::calls($shell))
-        ->toContain('storage.tar.gz')
-        ->toContain('.rush/code/override/staging/application/')
-        ->toContain('application/env.json');
+        ->toContain('root.tar.gz')
+        ->toContain('webroot.tar.gz')
+        ->toContain('.rush/code/override/staging/application/');
 });

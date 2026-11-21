@@ -24,7 +24,7 @@ function deployMaintenanceShell(): FakeShell
 
 test('enables maintenance by touching the marker', function () {
     $shell = deployMaintenanceShell();
-    $maintenance = new Maintenance(new Ssh($shell));
+    $maintenance = new Maintenance(new Ssh($shell), DeployFixtures::layout());
 
     $maintenance->enable(DeployFixtures::target());
 
@@ -36,7 +36,7 @@ test('enables maintenance by touching the marker', function () {
 
 test('disables maintenance by removing the marker', function () {
     $shell = deployMaintenanceShell();
-    $maintenance = new Maintenance(new Ssh($shell));
+    $maintenance = new Maintenance(new Ssh($shell), DeployFixtures::layout());
 
     $maintenance->disable(DeployFixtures::target());
 
@@ -47,7 +47,7 @@ test('disables maintenance by removing the marker', function () {
 
 
 test('reports the maintenance status', function () {
-    $maintenance = new Maintenance(new Ssh(deployMaintenanceShell()));
+    $maintenance = new Maintenance(new Ssh(deployMaintenanceShell()), DeployFixtures::layout());
 
     expect($maintenance->status(DeployFixtures::target()))->toBe('active');
 });

@@ -114,7 +114,7 @@ final class EventLog
 
     public function remoteDirectory(): string
     {
-        return $this->target->root .'/.deploy/events';
+        return $this->target->stateDir() .'/events';
     }
 
     public function remotePath(string $name): string

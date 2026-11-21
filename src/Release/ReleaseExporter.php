@@ -42,8 +42,8 @@ final class ReleaseExporter
             throw new RuntimeException('source has no current release');
         }
 
-        $remoteArchive = $this->target->root .'/.deploy/releases/'. $releaseId .'/release.tar.gz';
-        $remoteManifest = $this->target->root .'/.deploy/releases/'. $releaseId .'/manifest.json';
+        $remoteArchive = $this->target->stateDir() .'/releases/'. $releaseId .'/release.tar.gz';
+        $remoteManifest = $this->target->stateDir() .'/releases/'. $releaseId .'/manifest.json';
         $available = $this->ssh->run(
             $this->target,
             'test -f '. Ssh::quote($remoteArchive)
@@ -54,7 +54,7 @@ final class ReleaseExporter
             throw new RuntimeException("source release artifact not found: {$releaseId}");
         }
 
-        $directory = FileSystem::temporaryDirectory('stougeiro-release-');
+        $directory = FileSystem::temporaryDirectory('rush-release-');
 
         $archive = $directory .'/release.tar.gz';
         $manifestPath = $directory .'/manifest.json';

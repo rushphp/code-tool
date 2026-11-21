@@ -28,7 +28,7 @@ final class TargetGraph
                     continue;
                 }
 
-                if ($left->root === $right->root)
+                if ($left->root !== null && $left->root === $right->root)
                 {
                     throw new RuntimeException(
                         "config: targets '{$leftName}' and '{$rightName}' must not share root '{$left->root}' on the same server",

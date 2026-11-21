@@ -26,6 +26,44 @@ Enable it in `rush.json`:
 }
 ```
 
+## 🧱 Layout (required)
+
+`code.layout.json` at the project root defines what is published and how. It
+contains no credentials and is separate from `rush.json`.
+
+```json
+{
+  "php": { "min": "8.3" },
+  "publish": [
+    { "from": "application", "to": "$root/application" },
+    { "from": "public", "to": "$webroot" }
+  ],
+  "env": [
+    { "from": "application/env.json", "to": "$root/application/env.json" }
+  ],
+  "writable": ["$root/application/storage"],
+  "exclude": ["application/storage", "application/env.json", "public/.maintenance"],
+  "entrypoint": "public/index.php",
+  "maintenance": { "type": "marker", "path": "$webroot/.maintenance" },
+  "build": { "composer": true }
+}
+```
+
+```bash
+rush code layout:init                  # custom template
+rush code layout:init --preset=slim    # installed/local preset
+rush code layout:init --preset=slim --force
+rush code layout:presets
+rush code layout:validate
+```
+
+`custom` is built in. Other presets are installed as Composer packages
+declaring `extra.rush.code.presets` or placed in `.rush/code/presets/`.
+
+Deploy state lives in `.deploy`: under `root` when the target has one,
+otherwise under `webroot` (protected). The tool owns releases, backups, events
+and locks.
+
 ## 🚀 Commands
 
 ```bash
@@ -43,8 +81,9 @@ rush code rollback --target=production
 ```
 
 `config.json` holds `global` defaults and the `development`, `staging` and
-`production` targets. SSH auth files, local release mirrors and overrides live
-under `.rush/code/`.
+`production` targets. SSH auth files, local release mirrors, presets and
+overrides live under `.rush/code/`. The project layout is the separate,
+versioned `code.layout.json`.
 
 ```text
 .rush/code/

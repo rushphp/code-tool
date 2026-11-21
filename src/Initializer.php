@@ -11,6 +11,7 @@ class Initializer
     public function __construct(
         private readonly string $projectRoot,
         private readonly ?string $examplePath = null,
+        private readonly ?Layout $layout = null,
     ) {
     }
 
@@ -18,6 +19,7 @@ class Initializer
     /** @return list<string> */
     public function run(): array
     {
+        $layout = $this->layout ?? Layout::fromProject($this->projectRoot);
         $base = rtrim($this->projectRoot, '/') .'/.rush/code';
         $config = $base .'/config.json';
         $example = $this->examplePath ?? dirname(__DIR__) .'/code.example.json';
@@ -36,12 +38,18 @@ class Initializer
         ];
 
         foreach (Config::TARGETS as $environment) {
-            foreach (['application', 'public'] as $tree) {
-                $directories[] = $base .'/override/'. $environment .'/'. $tree;
+            $directories[] = $base .'/override/'. $environment;
+
+            foreach ($layout->publish() as $entry) {
+                $directories[] = $this->overrideDirectory($base, $environment, $entry['from']);
+            }
+
+            foreach ($layout->env() as $entry) {
+                $directories[] = dirname($base .'/override/'. $environment .'/'. $entry['from']);
             }
         }
 
-        foreach ($directories as $directory) {
+        foreach (array_values(array_unique($directories)) as $directory) {
             $lines[] = $this->directory($directory);
         }
 
@@ -50,6 +58,19 @@ class Initializer
         $lines[] = $this->configuration($config, $example);
 
         return $lines;
+    }
+
+
+    private function overrideDirectory(string $base, string $environment, string $from): string
+    {
+        $path = $base .'/override/'. $environment .'/'. $from;
+        $source = rtrim($this->projectRoot, '/') .'/'. $from;
+
+        if (is_file($source) || ! is_dir($source)) {
+            return dirname($path);
+        }
+
+        return $path;
     }
 
 

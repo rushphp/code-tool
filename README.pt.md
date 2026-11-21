@@ -27,6 +27,44 @@ Habilite no `rush.json`:
 }
 ```
 
+## 🧱 Layout (obrigatório)
+
+O `code.layout.json` na raiz do projeto define o que é publicado e como. Ele
+não contém credenciais e é separado do `rush.json`.
+
+```json
+{
+  "php": { "min": "8.3" },
+  "publish": [
+    { "from": "application", "to": "$root/application" },
+    { "from": "public", "to": "$webroot" }
+  ],
+  "env": [
+    { "from": "application/env.json", "to": "$root/application/env.json" }
+  ],
+  "writable": ["$root/application/storage"],
+  "exclude": ["application/storage", "application/env.json", "public/.maintenance"],
+  "entrypoint": "public/index.php",
+  "maintenance": { "type": "marker", "path": "$webroot/.maintenance" },
+  "build": { "composer": true }
+}
+```
+
+```bash
+rush code layout:init                  # template custom
+rush code layout:init --preset=slim    # preset instalado/local
+rush code layout:init --preset=slim --force
+rush code layout:presets
+rush code layout:validate
+```
+
+`custom` é embutido. Os demais presets são instalados como pacotes Composer que
+declaram `extra.rush.code.presets` ou colocados em `.rush/code/presets/`.
+
+O estado de deploy fica em `.deploy`: dentro de `root` quando o target tem um,
+senão dentro de `webroot` (protegido). O tool é dono de releases, backups,
+eventos e locks.
+
 ## 🚀 Comandos
 
 ```bash
@@ -45,7 +83,8 @@ rush code rollback --target=production
 
 O `config.json` contém os defaults `global` e os targets `development`,
 `staging` e `production`. Arquivos de autenticação SSH, espelhos locais de
-release e overrides ficam em `.rush/code/`.
+release, presets e overrides ficam em `.rush/code/`. O layout do projeto é o
+`code.layout.json`, separado e versionado.
 
 ```text
 .rush/code/

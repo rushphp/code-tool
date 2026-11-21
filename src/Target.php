@@ -15,8 +15,8 @@ class Target
         public readonly int $sshPort,
         public readonly SshAuth $sshAuth,
         public readonly string $webroot,
-        public readonly string $root,
-        public readonly string $rootBase,
+        public readonly ?string $root,
+        public readonly ?string $rootBase,
         public readonly ?string $rootDir,
         public readonly string $url,
         public readonly array $preserve,
@@ -34,4 +34,14 @@ class Target
     }
 
 
+    public function hasRoot(): bool
+    {
+        return $this->root !== null;
+    }
+
+
+    public function stateDir(): string
+    {
+        return rtrim($this->root ?? $this->webroot, '/') .'/.deploy';
+    }
 }

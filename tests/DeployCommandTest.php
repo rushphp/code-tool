@@ -118,6 +118,9 @@ test('code tool registers its commands', function () {
         'code promote',
         'code releases',
         'code rollback',
+        'code layout:init',
+        'code layout:presets',
+        'code layout:validate',
     ])->and($tool->version())->toBe('0.1.0');
 });
 
@@ -283,6 +286,7 @@ test('retire aborts when the source has nested webroots', function () {
         DeployFixtures::shell(),
         DeployFixtures::output(),
         DeployFixtures::operator(),
+        DeployFixtures::layout($root),
     );
 
     expect(fn () => $promoter->retire('https://staging.example.com', 'staging'))

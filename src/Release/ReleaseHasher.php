@@ -7,34 +7,50 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use RuntimeException;
 use SplFileInfo;
+use Rush\Tool\Code\Layout;
 
 
 final class ReleaseHasher
 {
-    /** @var list<string> */
-    private const EXCLUDED = [
-        'application/storage/',
-        'application/env.json',
-        'public/.maintenance',
-    ];
+    public function __construct(
+        private readonly ?Layout $layout = null,
+    ) {
+    }
 
 
     public function hash(string $projectRoot): string
     {
+        $layout = $this->layout ?? Layout::fromProject($projectRoot);
+        $root = rtrim($projectRoot, '/');
         $files = [];
 
-        foreach (['application', 'public'] as $directory) {
-            $this->collect($projectRoot, $directory, $files);
-        }
+        foreach ($layout->publish() as $entry) {
+            $source = $root .'/'. $entry['from'];
 
-        foreach (['composer.json', 'composer.lock'] as $file) {
-            $path = $projectRoot .'/'. $file;
-
-            if ( ! is_file($path)) {
-                throw new RuntimeException("missing file: {$file}");
+            if (is_dir($source)) {
+                $this->collect($root, $entry['from'], $layout->excludesFor($entry['from']), $files);
+                continue;
             }
 
-            $files[$file] = $path;
+            if ( ! is_file($source)) {
+                throw new RuntimeException("missing source: {$entry['from']}");
+            }
+
+            $files[trim($entry['from'], '/')] = $source;
+        }
+
+        if ($layout->build()['composer']) {
+            foreach (['composer.json', 'composer.lock'] as $file) {
+                $path = $root .'/'. $file;
+
+                if ( ! is_file($path)) {
+                    throw new RuntimeException("missing file: {$file}");
+                }
+
+                if ( ! isset($files[$file])) {
+                    $files[$file] = $path;
+                }
+            }
         }
 
         ksort($files, SORT_STRING);
@@ -55,14 +71,13 @@ final class ReleaseHasher
     }
 
 
-    /** @param array<string, string> $files */
-    private function collect(string $projectRoot, string $directory, array &$files): void
+    /**
+     * @param list<string> $excludes
+     * @param array<string, string> $files
+     */
+    private function collect(string $projectRoot, string $directory, array $excludes, array &$files): void
     {
         $root = $projectRoot .'/'. $directory;
-
-        if ( ! is_dir($root)) {
-            throw new RuntimeException("missing directory: {$directory}");
-        }
 
         $iterator = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
@@ -75,8 +90,9 @@ final class ReleaseHasher
             }
 
             $relative = str_replace('\\', '/', substr($item->getPathname(), strlen($projectRoot) + 1));
+            $inner = ltrim(substr($relative, strlen($directory)), '/');
 
-            if ($this->excluded($relative)) {
+            if ($this->excluded($inner, $excludes)) {
                 continue;
             }
 
@@ -84,10 +100,20 @@ final class ReleaseHasher
         }
     }
 
-    private function excluded(string $relative): bool
+
+    /** @param list<string> $excludes */
+    private function excluded(string $relative, array $excludes): bool
     {
-        foreach (self::EXCLUDED as $excluded) {
-            if (str_starts_with($relative, $excluded)) {
+        if ($relative === '.deploy' || str_starts_with($relative, '.deploy/')) {
+            return true;
+        }
+
+        foreach ($excludes as $excluded) {
+            if ($relative === $excluded || str_starts_with($relative, $excluded .'/')) {
+                return true;
+            }
+
+            if (str_ends_with($excluded, '/*') && str_starts_with($relative, substr($excluded, 0, -1))) {
                 return true;
             }
         }

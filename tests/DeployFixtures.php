@@ -4,6 +4,7 @@ namespace Tests;
 
 use RuntimeException;
 use Rush\Manager\Output;
+use Rush\Tool\Code\Layout;
 use Rush\Tool\Code\ShellResult;
 use Rush\Tool\Code\SshAuth;
 use Rush\Support\Operator;
@@ -42,6 +43,66 @@ final class DeployFixtures
         );
     }
 
+
+
+    /** @return array<string, mixed> */
+    public static function layoutArray(): array
+    {
+        return [
+            'php' => ['min' => '8.2'],
+            'publish' => [
+                ['from' => 'application', 'to' => '$root/application'],
+                ['from' => 'public', 'to' => '$webroot'],
+                ['from' => 'composer.json', 'to' => '$root/composer.json'],
+                ['from' => 'composer.lock', 'to' => '$root/composer.lock'],
+            ],
+            'env' => [
+                ['from' => 'application/env.json', 'to' => '$root/application/env.json'],
+            ],
+            'writable' => [
+                '$root/application/storage',
+                '$root/application/storage/cache',
+                '$root/application/storage/log',
+                '$root/application/storage/session',
+                '$root/application/storage/temp',
+                '$root/application/storage/upload',
+            ],
+            'exclude' => [
+                'application/storage',
+                'application/env.json',
+                'public/.maintenance',
+                '.deploy',
+            ],
+            'entrypoint' => 'public/index.php',
+            'preserve' => ['/.well-known/***'],
+            'maintenance' => [
+                'type' => 'marker',
+                'path' => '$webroot/.maintenance',
+            ],
+            'build' => [
+                'composer' => true,
+                'include' => ['application', 'composer.json', 'composer.lock'],
+                'exclude' => ['application/storage', 'application/env.json'],
+                'flags' => ['--no-dev', '--classmap-authoritative'],
+                'platform' => 'remote',
+            ],
+        ];
+    }
+
+
+    public static function layout(?string $root = null): Layout
+    {
+        return Layout::fromArray(self::layoutArray(), $root ?? sys_get_temp_dir());
+    }
+
+
+    public static function writeLayout(string $root): void
+    {
+        file_put_contents(
+            $root .'/code.layout.json',
+            json_encode(self::layoutArray(), JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) ."\n",
+        );
+    }
 
 
     public static function operator(): Operator
@@ -89,6 +150,8 @@ final class DeployFixtures
         file_put_contents($root .'/public/assets/app.css', 'body{}');
         file_put_contents($root .'/.rush/code/override/staging/public/.htaccess', 'Options -Indexes');
         file_put_contents($root .'/.rush/code/override/staging/application/env.json', '{"environment":"staging"}');
+
+        self::writeLayout($root);
 
         return $root;
     }
@@ -168,6 +231,10 @@ final class DeployFixtures
 
                 if ($failComposer) {
                     return new ShellResult(1, '', 'composer boom');
+                }
+
+                if (in_array('config', $command, true)) {
+                    return new ShellResult(0, '', '');
                 }
 
                 if ($composerNoVendor) {

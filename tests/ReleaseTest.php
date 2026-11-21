@@ -23,6 +23,7 @@ function deployReleaseWorkspace(): string
     file_put_contents($root .'/public/index.php', '<?php');
     file_put_contents($root .'/public/.maintenance', '');
     file_put_contents($root .'/public/style.css', 'body{}');
+    \Tests\DeployFixtures::writeLayout($root);
 
     return $root;
 }

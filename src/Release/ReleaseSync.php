@@ -55,7 +55,7 @@ final class ReleaseSync
 
                 $this->ensureDirectory(dirname($local));
                 $scp->download(
-                    $target->root .'/.deploy/releases/'. $releaseId .'/manifest.json',
+                    $target->stateDir() .'/releases/'. $releaseId .'/manifest.json',
                     $local,
                 );
             }
@@ -92,7 +92,7 @@ final class ReleaseSync
     {
         $result = $ssh->must(
             $target,
-            'ls -1 '. Ssh::quote($target->root .'/.deploy/releases') .'/*/manifest.json 2>/dev/null || true',
+            'ls -1 '. Ssh::quote($target->stateDir() .'/releases') .'/*/manifest.json 2>/dev/null || true',
         );
 
         $ids = [];
