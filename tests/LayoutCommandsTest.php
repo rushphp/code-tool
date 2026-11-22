@@ -111,6 +111,39 @@ test('layout:validate accepts a valid layout', function (): void {
 });
 
 
+test('layout:validate reports entrypoint, env and build gaps', function (): void {
+    $root = layoutCommandRoot();
+    file_put_contents($root .'/code.layout.json', json_encode([
+        'php' => ['min' => '8.3'],
+        'publish' => [['from' => 'public', 'to' => '$webroot']],
+        'env' => [['from' => 'application/env.json', 'to' => '$root/application/env.json']],
+        'entrypoint' => 'public/missing.php',
+        'maintenance' => ['type' => 'marker', 'path' => '$webroot/.maintenance'],
+        'build' => ['composer' => true, 'include' => ['application']],
+    ], JSON_THROW_ON_ERROR));
+
+    $stream = fopen('php://memory', 'w+');
+
+    if ($stream === false) {
+        throw new RuntimeException('could not open output stream');
+    }
+
+    $command = new LayoutValidateCommand($root);
+    $code = $command->run(Input::parse([], $command->options()), new \Rush\Manager\Output($stream, $stream));
+
+    rewind($stream);
+    $out = (string) stream_get_contents($stream);
+
+    expect($code)->toBe(ExitCode::CheckFailed->value)
+        ->and($out)->toContain('entrypoint missing: public/missing.php')
+        ->and($out)->toContain('env source not local')
+        ->and($out)->toContain('build include missing: application')
+        ->and($out)->toContain('layout invalid: 2 error(s)');
+
+    FileSystem::removeDir($root);
+});
+
+
 test('layout:validate fails when a publish source is missing', function (): void {
     $root = layoutCommandRoot();
     file_put_contents(

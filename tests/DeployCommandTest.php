@@ -96,6 +96,24 @@ test('rollback command lists backups', function () {
 });
 
 
+test('rollback command restores a specific timestamp', function () {
+    $root = DeployFixtures::workspace();
+    deployCommandWorkspace($root);
+    $shell = DeployFixtures::shell(snapshotList: "/srv/app/.deploy/backups/20240101-000000/\n");
+    $command = new RollbackCommand($root, $shell);
+
+    $code = $command->run(
+        deployCommandInput($command, ['--target=staging', '--timestamp=20240101-000000']),
+        DeployFixtures::output(),
+    );
+
+    expect($code)->toBe(ExitCode::Success->value)
+        ->and(DeployFixtures::calls($shell))->toContain('20240101-000000')
+        ->and(DeployFixtures::calls($shell))->toContain('root.tar.gz')
+        ->and(DeployFixtures::calls($shell))->toContain('webroot.tar.gz');
+});
+
+
 test('rollback command rejects list together with timestamp', function () {
     $root = DeployFixtures::workspace();
     deployCommandWorkspace($root);

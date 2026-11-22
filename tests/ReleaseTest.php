@@ -3,6 +3,8 @@
 use Rush\Tool\Code\Environment\EnvironmentChain;
 use Rush\Tool\Code\Release\ReleaseHasher;
 use Rush\Tool\Code\Release\ReleaseId;
+use Rush\Tool\Code\Release\ReleaseManifest;
+use Rush\Tool\Code\Release\ReleaseStore;
 use Tests\FakeShell;
 use Rush\Tool\Code\Release\ArtifactVerifier;
 use Rush\Tool\Code\Retirement\RedirectStub;
@@ -103,6 +105,50 @@ test('redirect stub requires the url placeholder', function () {
     expect(fn () => (new RedirectStub($root))->render('https://example.com'))
         ->toThrow(RuntimeException::class, 'must contain %url%');
 });
+
+
+test('release store persists and reloads a manifest', function () {
+    $root = deployReleaseWorkspace();
+    $store = new ReleaseStore($root);
+    $manifest = new ReleaseManifest(
+        'abcdef123456-20261105T102030',
+        'sha256:hash',
+        '1.0.0',
+        'version',
+        '2026-11-05T10:20:30+00:00',
+    );
+
+    expect($store->exists($manifest->releaseId))->toBeFalse();
+
+    $store->persist($manifest);
+
+    expect($store->exists($manifest->releaseId))->toBeTrue()
+        ->and($store->manifest($manifest->releaseId)->releaseId)->toBe($manifest->releaseId)
+        ->and($store->manifest($manifest->releaseId)->version)->toBe('1.0.0');
+
+    \Rush\Support\FileSystem::removeDir($root);
+});
+
+
+test('release store rejects missing or invalid manifests', function (string $contents, string $message) {
+    $root = sys_get_temp_dir() .'/release-store-'. bin2hex(random_bytes(6));
+    $store = new ReleaseStore($root);
+
+    expect(fn () => $store->manifest('missing'))->toThrow(RuntimeException::class, 'not found');
+
+    $directory = $root .'/.rush/code/releases/abcdef123456-20261105T102030';
+
+    mkdir($directory, 0700, true);
+    file_put_contents($directory .'/manifest.json', $contents);
+
+    expect(fn () => $store->manifest('abcdef123456-20261105T102030'))
+        ->toThrow(RuntimeException::class, $message);
+
+    \Rush\Support\FileSystem::removeDir($root);
+})->with([
+    ['{', 'invalid release manifest'],
+    ['123', 'invalid release manifest'],
+]);
 
 
 test('artifact verifier hashes files', function () {

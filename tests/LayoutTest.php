@@ -114,6 +114,69 @@ test('parses maintenance commands', function (): void {
 });
 
 
+test('rejects invalid layout definitions', function (array $layout): void {
+    expect(fn () => Layout::fromArray($layout, '/tmp/project'))
+        ->toThrow(RuntimeException::class);
+})->with([
+    'missing php' => [[
+        'publish' => [['from' => 'public', 'to' => '$webroot']],
+        'entrypoint' => 'public/index.php',
+        'maintenance' => ['type' => 'marker', 'path' => '$webroot/.maintenance'],
+    ]],
+    'invalid php' => [[
+        'php' => ['min' => '8'],
+        'publish' => [['from' => 'public', 'to' => '$webroot']],
+        'entrypoint' => 'public/index.php',
+        'maintenance' => ['type' => 'marker', 'path' => '$webroot/.maintenance'],
+    ]],
+    'empty publish' => [[
+        'php' => ['min' => '8.3'],
+        'publish' => [],
+        'entrypoint' => 'public/index.php',
+        'maintenance' => ['type' => 'marker', 'path' => '$webroot/.maintenance'],
+    ]],
+    'unsafe source' => [[
+        'php' => ['min' => '8.3'],
+        'publish' => [['from' => '../secret', 'to' => '$webroot']],
+        'entrypoint' => 'public/index.php',
+        'maintenance' => ['type' => 'marker', 'path' => '$webroot/.maintenance'],
+    ]],
+    'unsafe destination' => [[
+        'php' => ['min' => '8.3'],
+        'publish' => [['from' => 'public', 'to' => '$webroot/../secret']],
+        'entrypoint' => 'public/index.php',
+        'maintenance' => ['type' => 'marker', 'path' => '$webroot/.maintenance'],
+    ]],
+    'invalid env' => [[
+        'php' => ['min' => '8.3'],
+        'publish' => [['from' => 'public', 'to' => '$webroot']],
+        'env' => [['from' => '../env.json', 'to' => '$root/application/env.json']],
+        'entrypoint' => 'public/index.php',
+        'maintenance' => ['type' => 'marker', 'path' => '$webroot/.maintenance'],
+    ]],
+    'invalid writable' => [[
+        'php' => ['min' => '8.3'],
+        'publish' => [['from' => 'public', 'to' => '$webroot']],
+        'writable' => ['/absolute/path'],
+        'entrypoint' => 'public/index.php',
+        'maintenance' => ['type' => 'marker', 'path' => '$webroot/.maintenance'],
+    ]],
+    'invalid maintenance' => [[
+        'php' => ['min' => '8.3'],
+        'publish' => [['from' => 'public', 'to' => '$webroot']],
+        'entrypoint' => 'public/index.php',
+        'maintenance' => ['type' => 'unknown'],
+    ]],
+    'invalid build platform' => [[
+        'php' => ['min' => '8.3'],
+        'publish' => [['from' => 'public', 'to' => '$webroot']],
+        'entrypoint' => 'public/index.php',
+        'maintenance' => ['type' => 'marker', 'path' => '$webroot/.maintenance'],
+        'build' => ['platform' => 'latest'],
+    ]],
+]);
+
+
 test('stateDir follows root when present and webroot otherwise', function (): void {
     expect(layoutTarget()->stateDir())->toBe('/srv/app/.deploy')
         ->and(layoutTarget(null)->stateDir())->toBe('/srv/app/public_html/.deploy');

@@ -19,7 +19,7 @@ final class DeployFixtures
     public static function target(
         string $name = 'staging',
         ?SshAuth $auth = null,
-        string $root = '/srv/app',
+        ?string $root = '/srv/app',
         string $webroot = '/srv/app/public_html',
         int $backupKeep = 3,
         array $nestedWebroots = [],

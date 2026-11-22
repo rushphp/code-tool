@@ -56,3 +56,50 @@ test('web probe validates php and extensions and removes the probe', function ()
         ->and($calls)->toContain('cat >')
         ->and($calls)->toContain('rm -f');
 });
+
+
+test('checks supported composer PHP constraints', function (string $constraint, string $version, bool $ok): void {
+    $requirements = new ComposerRequirements($constraint, []);
+
+    if ($ok) {
+        $requirements->assert(['php' => $version, 'extensions' => []]);
+        expect(true)->toBeTrue();
+
+        return;
+    }
+
+    expect(fn () => $requirements->assert(['php' => $version, 'extensions' => []]))
+        ->toThrow(RuntimeException::class);
+})->with([
+    ['^8.3', '8.4.1', true],
+    ['^8.3', '9.0.0', false],
+    ['~8.3', '8.3.20', true],
+    ['8.3.*', '8.4.0', false],
+    ['>=8.3 <9', '8.4.0', true],
+    ['*', '7.4.0', true],
+    ['8.2', '8.1.9', false],
+]);
+
+
+test('rejects unsupported composer constraints and invalid require blocks', function (): void {
+    $root = sys_get_temp_dir() .'/deploy-requirements-'. bin2hex(random_bytes(6));
+    mkdir($root, 0700, true);
+
+    expect(fn () => (new ComposerRequirements('^8.3 || ^8.4', []))->assert([
+        'php' => '8.4.0',
+        'extensions' => [],
+    ]))->toThrow(RuntimeException::class, 'unsupported PHP constraint');
+
+    expect(fn () => ComposerRequirements::fromFile($root .'/missing.json'))
+        ->toThrow(RuntimeException::class, 'composer.json not found');
+
+    file_put_contents($root .'/composer.json', '{');
+    expect(fn () => ComposerRequirements::fromFile($root .'/composer.json'))
+        ->toThrow(RuntimeException::class, 'invalid composer.json');
+
+    file_put_contents($root .'/composer.json', json_encode(['require' => 'php'], JSON_THROW_ON_ERROR));
+    expect(fn () => ComposerRequirements::fromFile($root .'/composer.json'))
+        ->toThrow(RuntimeException::class, "'require' must be an object");
+
+    \Rush\Support\FileSystem::removeDir($root);
+});

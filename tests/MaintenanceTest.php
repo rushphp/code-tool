@@ -51,3 +51,29 @@ test('reports the maintenance status', function () {
 
     expect($maintenance->status(DeployFixtures::target()))->toBe('active');
 });
+
+
+test('runs command-based maintenance hooks', function (): void {
+    $layout = \Rush\Tool\Code\Layout::fromArray([
+        'php' => ['min' => '8.3'],
+        'publish' => [['from' => 'public', 'to' => '$webroot']],
+        'entrypoint' => 'public/index.php',
+        'maintenance' => [
+            'type' => 'commands',
+            'down' => ['php artisan down'],
+            'up' => ['php artisan up'],
+        ],
+        'build' => ['composer' => false],
+    ], '/tmp/project');
+
+    $shell = deployMaintenanceShell();
+    $maintenance = new Maintenance(new Ssh($shell), $layout);
+    $target = DeployFixtures::target();
+
+    $maintenance->enable($target);
+    $maintenance->disable($target);
+
+    expect($maintenance->status($target))->toBe('commands')
+        ->and(DeployFixtures::calls($shell))->toContain('php artisan down')
+        ->and(DeployFixtures::calls($shell))->toContain('php artisan up');
+});
