@@ -23,6 +23,7 @@ final class ReleaseManifest
         public readonly ?string $previousReleaseId = null,
         public readonly array $createdBy = [],
         public readonly ?string $artifactHash = null,
+        public readonly ?string $layout = null,
     ) {
     }
 
@@ -53,6 +54,7 @@ final class ReleaseManifest
                 ]
                 : [],
             is_string($data['artifactHash'] ?? null) ? $data['artifactHash'] : null,
+            is_string($data['layout'] ?? null) ? $data['layout'] : null,
         );
     }
 
@@ -70,6 +72,7 @@ final class ReleaseManifest
             'previousReleaseId' => $this->previousReleaseId,
             'createdBy' => $this->createdBy,
             'artifactHash' => $this->artifactHash,
+            'layout' => $this->layout,
         ];
     }
 

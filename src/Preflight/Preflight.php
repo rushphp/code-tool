@@ -5,7 +5,6 @@ namespace Rush\Tool\Code\Preflight;
 use RuntimeException;
 use Rush\Contract\OutputInterface;
 use Rush\Tool\Code\Layout;
-use Rush\Tool\Code\Remote\RemoteFiles;
 use Rush\Tool\Code\Requirements\ComposerRequirements;
 use Rush\Tool\Code\Requirements\WebProbe;
 use Rush\Tool\Code\Shell;
@@ -25,7 +24,6 @@ final class Preflight
         private readonly Target $target,
         private readonly Shell $shell,
         private readonly Ssh $ssh,
-        private readonly RemoteFiles $remote,
         private readonly OutputInterface $output,
         private readonly Layout $layout,
     ) {
@@ -180,14 +178,6 @@ final class Preflight
 
     private function checkRequirements(): void
     {
-        $current = $this->remote->readCurrent();
-
-        if (($current['status'] ?? null) === 'redirected') {
-            $this->out('requirements: skipped for redirected target');
-
-            return;
-        }
-
         $probe = (new WebProbe())->inspect($this->target, $this->shell);
 
         if (version_compare($probe['php'], $this->layout->phpMin(), '<')) {

@@ -35,7 +35,7 @@ test('creates the local code layout and copies the example config', function () 
         ->and(is_dir($root .'/.rush/code/override/production/public'))->toBeTrue()
         ->and(is_dir($root .'/.rush/code/override/production/vendor'))->toBeFalse()
         ->and(is_dir($root .'/.rush/code/backups'))->toBeFalse()
-        ->and(is_dir($root .'/.rush/code/lock'))->toBeFalse()
+        ->and(is_dir($root .'/.rush/code/presets'))->toBeFalse()
         ->and(file_get_contents($root .'/.rush/code/config.json'))->toBe('{"global":{},"targets":{}}')
         ->and($lines)->toContain('created .rush/code');
 });

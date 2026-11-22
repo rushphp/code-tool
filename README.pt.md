@@ -62,8 +62,8 @@ rush code layout:validate
 declaram `extra.rush.code.presets` ou colocados em `.rush/code/presets/`.
 
 O estado de deploy fica em `.deploy`: dentro de `root` quando o target tem um,
-senão dentro de `webroot` (protegido). O tool é dono de releases, backups,
-eventos e locks.
+senão dentro de `webroot` (protegido). O tool é dono de releases, backups e
+eventos.
 
 ## 🚀 Comandos
 

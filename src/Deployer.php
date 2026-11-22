@@ -6,10 +6,11 @@ use RuntimeException;
 use Throwable;
 use Rush\Contract\OutputInterface;
 use Rush\Tool\Code\Backup\SnapshotStore;
+use Rush\Tool\Code\Deploy\BuildPlan;
 use Rush\Tool\Code\Event\EventWriter;
-use Rush\Tool\Code\Lock\TargetLock;
 use Rush\Support\Operator;
 use Rush\Tool\Code\Preflight\Preflight;
+use Rush\Tool\Code\Requirements\WebProbe;
 use Rush\Tool\Code\Release\ArtifactVerifier;
 use Rush\Tool\Code\Release\ReleaseHasher;
 use Rush\Tool\Code\Release\ReleaseId;
@@ -65,7 +66,7 @@ class Deployer
         $this->remote = new RemoteFiles($target, $this->ssh);
         $this->snapshots = new SnapshotStore($target, $this->ssh, $this->layout);
         $this->transfer = new Transfer($projectRoot, $target, $shell, $this->ssh, $this->scp, $output, $this->layout);
-        $this->preflight = new Preflight($projectRoot, $target, $shell, $this->ssh, $this->remote, $output, $this->layout);
+        $this->preflight = new Preflight($projectRoot, $target, $shell, $this->ssh, $output, $this->layout);
         $this->publisher = new ReleasePublisher($projectRoot, $target, $shell, $this->ssh, $this->scp, $this->remote, $output, $this->layout);
         $this->verifier = new Verifier($target, $shell, $output);
         $this->events = new EventWriter($target, $operator, $output, $projectRoot, $shell);
@@ -78,19 +79,8 @@ class Deployer
     }
 
 
-    public function push(bool $forceLock = false): void
+    public function push(): void
     {
-        $lock = new TargetLock($this->target, $this->shell, $this->operator, 'push');
-        $previousOwner = $lock->acquire($forceLock);
-
-        if ($previousOwner !== null) {
-            $lockReleaseId = $this->remote->currentReleaseId() ?? 'lock';
-            $this->events->write('lock.override', $lockReleaseId, null, $this->target->name, null, [
-                'forcedLock' => true,
-                'previousOwner' => $previousOwner,
-            ]);
-        }
-
         $build = null;
         $releaseArchive = null;
         $started = false;
@@ -186,8 +176,6 @@ class Deployer
         }
         finally
         {
-            $lock->release();
-
             if ($releaseArchive !== null && ! FileSystem::tryDelete($releaseArchive)) {
                 $this->out('warning: could not remove temporary release archive');
             }

@@ -72,6 +72,19 @@ test('layouts using root require a target root', function (): void {
 });
 
 
+test('composer builds require a target root', function (): void {
+    $layout = Layout::fromArray([
+        'php' => ['min' => '8.3'],
+        'publish' => [['from' => 'public', 'to' => '$webroot']],
+        'entrypoint' => 'public/index.php',
+        'maintenance' => ['type' => 'marker', 'path' => '$webroot/.maintenance'],
+    ], '/tmp/project');
+
+    expect(fn () => $layout->assertTargetCompatible(layoutTarget(null)))
+        ->toThrow(RuntimeException::class, 'requires a');
+});
+
+
 test('rejects unsafe publish paths', function (): void {
     expect(fn () => Layout::fromArray([
         'php' => ['min' => '8.3'],

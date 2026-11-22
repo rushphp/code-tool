@@ -239,7 +239,7 @@ final class Layout
 
     public function assertTargetCompatible(Target $target): void
     {
-        if ($this->usesRoot() && $target->root === null) {
+        if (($this->usesRoot() || $this->build['composer']) && $target->root === null) {
             throw new RuntimeException("layout: target '{$target->name}' requires a 'root'");
         }
     }
@@ -288,6 +288,43 @@ final class Layout
 
             if (str_starts_with($pattern, $from .'/')) {
                 $excludes[] = substr($pattern, strlen($from) + 1);
+            }
+        }
+
+        foreach ($this->protectedExcludesFor($from) as $exclude) {
+            $excludes[] = $exclude;
+        }
+
+        return array_values(array_unique($excludes));
+    }
+
+
+    /** @return list<string> */
+    private function protectedExcludesFor(string $from): array
+    {
+        $excludes = [];
+
+        foreach ($this->publish as $entry) {
+            if (trim($entry['from'], '/') !== $from) {
+                continue;
+            }
+
+            $destination = rtrim($entry['to'], '/');
+
+            foreach ([...$this->writable, ...array_map(
+                static fn (array $env): string => $env['to'],
+                $this->env,
+            )] as $protected) {
+                $protected = rtrim($protected, '/');
+
+                if ($protected === $destination) {
+                    $excludes[] = '*';
+                    continue;
+                }
+
+                if (str_starts_with($protected .'/', $destination .'/')) {
+                    $excludes[] = substr($protected, strlen($destination) + 1);
+                }
             }
         }
 

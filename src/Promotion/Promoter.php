@@ -6,8 +6,9 @@ use RuntimeException;
 use Throwable;
 use Rush\Contract\OutputInterface;
 use Rush\Tool\Code\Backup\SnapshotStore;
+use Rush\Tool\Code\Deploy\DeployPaths;
+use Rush\Tool\Code\Deploy\PathRules;
 use Rush\Tool\Code\Event\EventWriter;
-use Rush\Tool\Code\Lock\TargetLock;
 use Rush\Tool\Code\Layout;
 use Rush\Tool\Code\Maintenance;
 use Rush\Support\Operator;
@@ -48,6 +49,8 @@ final class Promoter
 
     private readonly EventWriter $events;
 
+    private readonly PathRules $rules;
+
 
     public function __construct(
         private readonly string $projectRoot,
@@ -63,10 +66,11 @@ final class Promoter
         $this->remote = new RemoteFiles($target, $this->ssh);
         $this->snapshots = new SnapshotStore($target, $this->ssh, $layout);
         $this->transfer = new Transfer($projectRoot, $target, $shell, $this->ssh, $this->scp, $output, $layout);
-        $this->preflight = new Preflight($projectRoot, $target, $shell, $this->ssh, $this->remote, $output, $layout);
+        $this->preflight = new Preflight($projectRoot, $target, $shell, $this->ssh, $output, $layout);
         $this->publisher = new ReleasePublisher($projectRoot, $target, $shell, $this->ssh, $this->scp, $this->remote, $output, $layout);
         $this->verifier = new Verifier($target, $shell, $output);
         $this->events = new EventWriter($target, $operator, $output, $projectRoot, $shell);
+        $this->rules = new PathRules($layout, $target);
     }
 
 
@@ -77,23 +81,16 @@ final class Promoter
     }
 
 
-    public function receive(string $archive, ReleaseManifest $manifest, string $promotedFrom, bool $forceLock = false): void
+    public function receive(string $archive, ReleaseManifest $manifest, string $promotedFrom): void
     {
-        $lock = new TargetLock($this->target, $this->shell, $this->operator, 'promote');
-        $previousOwner = $lock->acquire($forceLock);
-
-        if ($previousOwner !== null) {
-            $lockReleaseId = $this->remote->currentReleaseId() ?? 'lock';
-            $this->events->write('lock.override', $lockReleaseId, null, $this->target->name, null, [
-                'forcedLock' => true,
-                'previousOwner' => $previousOwner,
-            ]);
+        if ($manifest->layout !== null && $manifest->layout !== $this->layout->fingerprint()) {
+            throw new RuntimeException('release layout does not match destination layout');
         }
 
         $started = false;
         $snapshot = null;
         $hasRsync = false;
-        $remoteArchive = $this->target->stateDir() .'/incoming-release-'. bin2hex(random_bytes(4)) .'.tar.gz';
+        $remoteArchive = DeployPaths::incoming($this->target, 'release');
 
         try {
             $hasRsync = $this->preflight->check();
@@ -150,9 +147,6 @@ final class Promoter
             }
 
             throw $error;
-        }
-        finally {
-            $lock->release();
         }
     }
 
@@ -260,7 +254,18 @@ final class Promoter
         $commands = [];
 
         foreach ($this->layout->publishFor('root') as $entry) {
-            $commands[] = 'rm -rf '. Ssh::quote($this->layout->resolve($entry['to'], $target));
+            $destination = $this->layout->resolve($entry['to'], $target);
+            $source = rtrim($this->projectRoot, '/') .'/'. $entry['from'];
+
+            if (is_dir($source)) {
+                $commands[] = $this->rules->deleteContents(
+                    $destination,
+                    $this->rules->preserveInside($destination),
+                );
+                continue;
+            }
+
+            $commands[] = 'rm -f '. Ssh::quote($destination);
         }
 
         if ($target->root !== null) {
@@ -282,7 +287,10 @@ final class Promoter
             $source = rtrim($this->projectRoot, '/') .'/'. $entry['from'];
 
             if (is_dir($source)) {
-                $commands[] = $this->deleteContents($destination, $this->rootPreserve($destination));
+                $commands[] = $this->rules->deleteContents(
+                    $destination,
+                    $this->rules->preserveInside($destination),
+                );
                 continue;
             }
 
@@ -295,66 +303,10 @@ final class Promoter
 
     private function webrootDeleteCommand(bool $preserveStub = false): string
     {
-        $preserve = ['.deploy', '.maintenance', ...$this->target->nestedWebroots];
-
-        if ($preserveStub) {
-            $preserve[] = 'index.php';
-            $preserve[] = '.htaccess';
-        }
-
-        foreach ([...$this->layout->preserve(), ...$this->target->preserve] as $pattern) {
-            $name = explode('/', ltrim($pattern, '/'))[0];
-
-            if ($name !== '') {
-                $preserve[] = $name;
-            }
-        }
-
-        return $this->deleteContents($this->target->webroot, $preserve);
-    }
-
-
-    /** @return list<string> */
-    private function rootPreserve(string $destination): array
-    {
-        $preserve = [];
-
-        if ($this->target->root === $destination) {
-            $preserve[] = '.deploy';
-        }
-
-        foreach ([...$this->layout->writable(), ...array_map(
-            static fn (array $env): string => $env['to'],
-            $this->layout->env(),
-        )] as $protected) {
-            $path = $this->layout->resolve($protected, $this->target);
-
-            if ($path === $destination) {
-                continue;
-            }
-
-            if (str_starts_with($path .'/', rtrim($destination, '/') .'/')) {
-                $relative = substr($path, strlen(rtrim($destination, '/')) + 1);
-                $preserve[] = explode('/', $relative)[0];
-            }
-        }
-
-        return array_values(array_unique($preserve));
-    }
-
-
-    /** @param list<string> $preserve */
-    private function deleteContents(string $directory, array $preserve): string
-    {
-        $command = 'find '. Ssh::quote($directory) .' -mindepth 1 -maxdepth 1';
-
-        foreach (array_values(array_unique($preserve)) as $name) {
-            if ($name !== '') {
-                $command .= ' ! -name '. Ssh::quote($name);
-            }
-        }
-
-        return $command .' -exec rm -rf {} +';
+        return $this->rules->deleteContents(
+            $this->target->webroot,
+            $this->rules->webrootPreserve($preserveStub),
+        );
     }
 
 

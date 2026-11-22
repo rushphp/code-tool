@@ -273,7 +273,9 @@ test('promote moves the current release to the next target and retires the sourc
         ->and($calls)->toContain('/srv/staging/app/.deploy/current.json')
         ->and($calls)->toContain('/srv/dev/public_html/index.php')
         ->and($calls)->toContain('/srv/dev/public_html/.htaccess')
-        ->and($calls)->toContain("rm -rf '/srv/dev/app/application'")
+        ->and($calls)->toContain("find '/srv/dev/app/application'")
+        ->and($calls)->toContain("! -name 'storage'")
+        ->and($calls)->toContain("! -name 'env.json'")
         ->and($calls)->toContain('https://dev.example.com');
 });
 

@@ -25,13 +25,12 @@ final class PushCommand extends CommandAbstract
     {
         return [
             new Option('target', 'Target to operate on (development, staging, production)', true, null, true, 'target'),
-            new Option('force', 'Override an active production lock; recorded as an event'),
         ];
     }
 
     public function run(InputInterface $input, OutputInterface $output): int
     {
-        $this->deployer($this->target($input), $output)->push($input->bool('force'));
+        $this->deployer($this->target($input), $output)->push();
         $this->syncReleases($output);
 
         return ExitCode::Success->value;

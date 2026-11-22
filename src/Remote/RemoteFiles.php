@@ -4,6 +4,7 @@ namespace Rush\Tool\Code\Remote;
 
 use JsonException;
 use RuntimeException;
+use Rush\Tool\Code\Deploy\DeployPaths;
 use Rush\Tool\Code\Release\ReleaseManifest;
 use Rush\Tool\Code\Ssh;
 use Rush\Tool\Code\Target;
@@ -23,8 +24,8 @@ final class RemoteFiles
     {
         $result = $this->ssh->must(
             $this->target,
-            'if [ -f '. Ssh::quote($this->target->stateDir() .'/current.json') .' ]; '
-            .'then cat '. Ssh::quote($this->target->stateDir() .'/current.json')
+            'if [ -f '. Ssh::quote(DeployPaths::current($this->target)) .' ]; '
+            .'then cat '. Ssh::quote(DeployPaths::current($this->target))
             .'; else printf __MISSING__; fi',
         );
 
@@ -75,13 +76,13 @@ final class RemoteFiles
             $data['promotedFrom'] = $promotedFrom;
         }
 
-        $this->writeJson($this->target->stateDir() .'/current.json', $data);
+        $this->writeJson(DeployPaths::current($this->target), $data);
     }
 
 
     public function writeCurrentReleaseId(string $releaseId): void
     {
-        $this->writeJson($this->target->stateDir() .'/current.json', [
+        $this->writeJson(DeployPaths::current($this->target), [
             'releaseId' => $releaseId,
             'status' => 'current',
         ]);
@@ -92,7 +93,7 @@ final class RemoteFiles
     {
         $this->ssh->run(
             $this->target,
-            'rm -f '. Ssh::quote($this->target->stateDir() .'/current.json'),
+            'rm -f '. Ssh::quote(DeployPaths::current($this->target)),
         );
     }
 

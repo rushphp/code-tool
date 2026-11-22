@@ -4,6 +4,8 @@ namespace Rush\Tool\Code\Backup;
 
 use JsonException;
 use RuntimeException;
+use Rush\Tool\Code\Deploy\DeployPaths;
+use Rush\Tool\Code\Deploy\PathRules;
 use Rush\Tool\Code\Layout;
 use Rush\Tool\Code\Ssh;
 use Rush\Tool\Code\Target;
@@ -11,11 +13,15 @@ use Rush\Tool\Code\Target;
 
 final class SnapshotStore
 {
+    private readonly PathRules $rules;
+
+
     public function __construct(
         private readonly Target $target,
         private readonly Ssh $ssh,
         private readonly Layout $layout,
     ) {
+        $this->rules = new PathRules($layout, $target);
     }
 
 
@@ -36,7 +42,7 @@ final class SnapshotStore
 
         if ($target->root !== null) {
             $excludes = ['--exclude=.deploy'];
-            $nested = $this->relativeWebroot();
+            $nested = $this->rules->relativeWebroot();
 
             if ($nested !== null) {
                 $excludes[] = '--exclude='. Ssh::quote($nested);
@@ -51,10 +57,6 @@ final class SnapshotStore
 
         foreach ($target->nestedWebroots as $entry) {
             $webrootExcludes[] = '--exclude='. Ssh::quote('./'. $entry);
-        }
-
-        foreach ([...$this->layout->preserve(), ...$target->preserve] as $pattern) {
-            $webrootExcludes[] = '--exclude='. Ssh::quote($this->tarPattern($pattern));
         }
 
         $commands[] = 'tar -czf '. Ssh::quote($directory .'/webroot.tar.gz')
@@ -90,39 +92,23 @@ final class SnapshotStore
     public function restore(string $timestamp): array
     {
         $target = $this->target;
-        $directory = $this->directory() .'/'. $timestamp;
+        $directory = DeployPaths::backup($target, $timestamp);
         $manifest = $this->assertSnapshotLayout($directory);
         $commands = [];
 
         if ($target->root !== null) {
-            $preserve = [];
-
-            if ($this->stateInRoot()) {
-                $preserve[] = '.deploy';
-            }
-
-            $webroot = $this->relativeWebroot();
-
-            if ($webroot !== null) {
-                $preserve[] = explode('/', $webroot)[0];
-            }
-
-            $commands[] = $this->deleteContents($target->root, $preserve);
+            $commands[] = $this->rules->deleteContents(
+                $target->root,
+                $this->rules->preserveInside($target->root),
+            );
             $commands[] = 'tar -xzf '. Ssh::quote($directory .'/root.tar.gz')
                 .' -C '. Ssh::quote($target->root);
         }
 
-        $preserve = ['.deploy', '.maintenance', ...$target->nestedWebroots];
-
-        foreach ([...$this->layout->preserve(), ...$target->preserve] as $pattern) {
-            $name = explode('/', ltrim($this->tarPattern($pattern), '/'))[0];
-
-            if ($name !== '') {
-                $preserve[] = $name;
-            }
-        }
-
-        $commands[] = $this->deleteContents($target->webroot, array_values(array_unique($preserve)));
+        $commands[] = $this->rules->deleteContents(
+            $target->webroot,
+            $this->rules->preserveInside($target->webroot, true),
+        );
         $commands[] = 'tar -xzf '. Ssh::quote($directory .'/webroot.tar.gz')
             .' -C '. Ssh::quote($target->webroot);
 
@@ -171,7 +157,7 @@ final class SnapshotStore
 
     public function pruneReleases(string $currentReleaseId): void
     {
-        $directory = $this->target->stateDir() .'/releases';
+        $directory = DeployPaths::releases($this->target);
         $result = $this->ssh->run($this->target, 'ls -1dt '. Ssh::quote($directory) .'/*/ 2>/dev/null || true');
         $releases = [];
 
@@ -205,7 +191,7 @@ final class SnapshotStore
 
     private function directory(): string
     {
-        return $this->target->stateDir() .'/backups';
+        return DeployPaths::backups($this->target);
     }
 
 
@@ -251,57 +237,5 @@ final class SnapshotStore
 
         /** @var array<string, mixed> $manifest */
         return $manifest;
-    }
-
-
-    /** @param list<string> $preserve */
-    private function deleteContents(string $directory, array $preserve): string
-    {
-        $command = 'find '. Ssh::quote($directory) .' -mindepth 1 -maxdepth 1';
-
-        foreach (array_values(array_unique($preserve)) as $name) {
-            if ($name !== '') {
-                $command .= ' ! -name '. Ssh::quote($name);
-            }
-        }
-
-        return $command .' -exec rm -rf {} +';
-    }
-
-
-    private function relativeWebroot(): ?string
-    {
-        if ($this->target->root === null) {
-            return null;
-        }
-
-        $root = rtrim($this->target->root, '/') .'/';
-
-        if ( ! str_starts_with($this->target->webroot, $root)) {
-            return null;
-        }
-
-        return substr($this->target->webroot, strlen($root));
-    }
-
-
-    private function stateInRoot(): bool
-    {
-        return $this->target->root !== null
-            && str_starts_with($this->target->stateDir() .'/', rtrim($this->target->root, '/') .'/');
-    }
-
-
-    private function tarPattern(string $pattern): string
-    {
-        $pattern = ltrim($pattern, '/');
-
-        foreach (['/***', '/**', '/*'] as $suffix) {
-            if (str_ends_with($pattern, $suffix)) {
-                return substr($pattern, 0, -strlen($suffix));
-            }
-        }
-
-        return $pattern;
     }
 }

@@ -3,6 +3,8 @@
 namespace Rush\Tool\Code\Transport;
 
 use Rush\Contract\OutputInterface;
+use Rush\Tool\Code\Deploy\DeployPaths;
+use Rush\Tool\Code\Deploy\PathRules;
 use Rush\Tool\Code\Layout;
 use Rush\Tool\Code\Remote\Scp;
 use Rush\Tool\Code\Shell;
@@ -13,6 +15,9 @@ use Rush\Tool\Code\Target;
 
 final class Transfer
 {
+    private readonly PathRules $rules;
+
+
     public function __construct(
         private readonly string $projectRoot,
         private readonly Target $target,
@@ -22,6 +27,7 @@ final class Transfer
         private readonly OutputInterface $output,
         private readonly Layout $layout,
     ) {
+        $this->rules = new PathRules($layout, $target);
     }
 
 
@@ -63,10 +69,10 @@ final class Transfer
             $directories[] = $target->root .'/vendor';
         }
 
-        $directories[] = $target->stateDir();
-        $directories[] = $target->stateDir() .'/backups';
-        $directories[] = $target->stateDir() .'/releases';
-        $directories[] = $target->stateDir() .'/events';
+        $directories[] = DeployPaths::remote($target);
+        $directories[] = DeployPaths::backups($target);
+        $directories[] = DeployPaths::releases($target);
+        $directories[] = DeployPaths::events($target);
 
         $command = 'mkdir -p';
 
@@ -117,7 +123,7 @@ final class Transfer
         foreach ($this->layout->publish() as $entry) {
             $source = rtrim($this->projectRoot, '/') .'/'. $entry['from'];
             $destination = $this->layout->resolve($entry['to'], $this->target);
-            $excludes = $this->entryExcludes($entry, $destination);
+            $excludes = $this->entryExcludes($entry);
 
             if ( ! is_dir($source) && ! is_file($source)) {
                 throw new \RuntimeException("transport: missing source: {$entry['from']}");
@@ -151,7 +157,7 @@ final class Transfer
         foreach ($this->layout->publish() as $entry) {
             $source = rtrim($this->projectRoot, '/') .'/'. $entry['from'];
             $destination = $this->layout->resolve($entry['to'], $this->target);
-            $excludes = $this->entryExcludes($entry, $destination);
+            $excludes = $this->entryExcludes($entry);
 
             if ( ! is_dir($source) && ! is_file($source)) {
                 throw new \RuntimeException("transport: missing source: {$entry['from']}");
@@ -167,13 +173,13 @@ final class Transfer
 
             $archive = FileSystem::temporaryArchive();
             $base = $this->layout->destination($entry['to'])['base'];
-            $remote = $this->target->stateDir() .'/incoming-'. $base .'-'. bin2hex(random_bytes(4)) .'.tar.gz';
+            $remote = DeployPaths::incoming($this->target, $base);
 
             try {
                 $command = ['tar', '-czf', $archive];
 
                 foreach ($excludes as $exclude) {
-                    $command[] = '--exclude='. $exclude;
+                    $command[] = '--exclude='. ($exclude === '*' ? '*' : './'. ltrim($exclude, '/'));
                 }
 
                 array_push($command, '-C', $source, '.');
@@ -215,7 +221,7 @@ final class Transfer
     private function secureDirectory(string $source, string $destination): void
     {
         $archive = FileSystem::temporaryArchive();
-        $remote = $this->target->stateDir() .'/incoming-'. bin2hex(random_bytes(4)) .'.tar.gz';
+        $remote = DeployPaths::incoming($this->target, 'override');
 
         try {
             $this->shell->mustRun(['tar', '-czf', $archive, '-C', $source, '.']);
@@ -266,41 +272,9 @@ HTACCESS;
      * @param array{from: string, to: string} $entry
      * @return list<string>
      */
-    private function entryExcludes(array $entry, string $destination): array
+    private function entryExcludes(array $entry): array
     {
-        $excludes = [...$this->layout->excludesFor($entry['from']), '.deploy'];
-        $base = $this->layout->destination($entry['to'])['base'];
-
-        if ($base === 'webroot') {
-            $excludes[] = '.maintenance';
-
-            foreach ([...$this->layout->preserve(), ...$this->target->preserve] as $pattern) {
-                $excludes[] = $pattern;
-            }
-
-            foreach ($this->target->nestedWebroots as $nested) {
-                $excludes[] = '/'. $nested;
-                $excludes[] = '/'. $nested .'/***';
-            }
-        }
-
-        foreach ([...$this->layout->writable(), ...array_map(
-            static fn (array $env): string => $env['to'],
-            $this->layout->env(),
-        )] as $protected) {
-            $path = $this->layout->resolve($protected, $this->target);
-
-            if ($path === $destination) {
-                $excludes[] = '*';
-                continue;
-            }
-
-            if (str_starts_with($path .'/', rtrim($destination, '/') .'/')) {
-                $excludes[] = substr($path, strlen(rtrim($destination, '/')) + 1);
-            }
-        }
-
-        return array_values(array_unique($excludes));
+        return $this->rules->excludesFor($entry['from'], $entry['to']);
     }
 
 
@@ -346,7 +320,7 @@ HTACCESS;
         }
 
         foreach ($excludes as $exclude) {
-            $args[] = '--exclude='. $exclude;
+            $args[] = '--exclude='. ($exclude === '*' ? '*' : '/'. ltrim($exclude, '/'));
         }
 
         $args[] = $source;
