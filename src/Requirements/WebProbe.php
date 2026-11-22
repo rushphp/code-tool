@@ -13,7 +13,7 @@ final class WebProbe
     /** @return array{php: string, extensions: list<string>} */
     public function inspect(Target $target, Shell $shell): array
     {
-        $name = '_sr-check-'. bin2hex(random_bytes(6)) .'.php';
+        $name = '_rush-check-'. bin2hex(random_bytes(6)) .'.php';
         $token = bin2hex(random_bytes(24));
         $path = rtrim($target->webroot, '/') .'/'. $name;
         $url = rtrim($target->url, '/') .'/'. $name .'?token='. rawurlencode($token);

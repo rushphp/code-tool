@@ -39,7 +39,7 @@ test('web probe validates php and extensions and removes the probe', function ()
     $shell = new FakeShell(function (array $command, ?string $stdin = null): \Rush\Tool\Code\ShellResult {
         $last = (string) $command[count($command) - 1];
 
-        if (str_contains($last, '_sr-check') && $command[0] === 'curl') {
+        if (str_contains($last, '_rush-check') && $command[0] === 'curl') {
             return new \Rush\Tool\Code\ShellResult(0, json_encode([
                 'php' => '8.2.20',
                 'extensions' => ['pdo', 'pdo_sqlite'],

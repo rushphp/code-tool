@@ -262,9 +262,9 @@ final class DeployFixtures
             if ($binary === 'curl') {
                 $url = $command[count($command) - 1];
 
-                if (str_contains($url, '_sr-check')) {
+                if (str_contains($url, '_rush-check')) {
                     return new ShellResult(0, json_encode([
-                        'php' => '8.2.20',
+                        'php' => '8.3.20',
                         'extensions' => ['pdo', 'pdo_sqlite'],
                     ], JSON_THROW_ON_ERROR), '');
                 }

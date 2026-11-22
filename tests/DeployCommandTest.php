@@ -202,9 +202,9 @@ function deployPromoteShell(string $currentJson, string $manifestJson): FakeShel
         }
 
         if ($binary === 'curl') {
-            if (str_contains($last, '_sr-check')) {
+            if (str_contains($last, '_rush-check')) {
                 return new \Rush\Tool\Code\ShellResult(0, json_encode([
-                    'php' => '8.2.20',
+                    'php' => '8.3.20',
                     'extensions' => ['pdo', 'pdo_sqlite'],
                 ], JSON_THROW_ON_ERROR), '');
             }
