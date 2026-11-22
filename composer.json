@@ -23,6 +23,11 @@
         "issues": "https://github.com/rushphp/code-tool/issues",
         "source": "https://github.com/rushphp/code-tool"
     },
+    "extra": {
+        "rush": {
+            "tool": "Rush\\Tool\\Code\\CodeTool"
+        }
+    },
     "autoload": {
         "psr-4": {
             "Rush\\Tool\\Code\\": "src/"
