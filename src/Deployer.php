@@ -274,15 +274,12 @@ class Deployer
     }
 
 
-    /**
-     * @return array{dir:string,vendor:string}
-     */
     /** @return null|array{dir: string, vendor: string} */
     private function buildVendor(): ?array
     {
-        $build = $this->layout->build();
+        $plan = new BuildPlan($this->layout);
 
-        if ( ! $build['composer']) {
+        if ( ! $plan->enabled()) {
             return null;
         }
 
@@ -290,7 +287,7 @@ class Deployer
 
         try
         {
-            foreach ($build['include'] as $include)
+            foreach ($plan->include() as $include)
             {
                 $source = $this->projectRoot .'/'. $include;
 
@@ -306,7 +303,7 @@ class Deployer
                 FileSystem::copyDir(
                     $source,
                     $directory .'/'. $include,
-                    $this->buildExcludes($include, $build['exclude']),
+                    $plan->excludesFor($include),
                 );
             }
 
@@ -317,7 +314,9 @@ class Deployer
                 }
             }
 
-            $platform = $this->buildPlatform($build['platform']);
+            $rawPlatform = $this->layout->build()['platform'];
+            $remotePhp = $rawPlatform === 'remote' ? $this->remotePhp() : null;
+            $platform = $plan->platform($remotePhp);
             $result = $this->shell->run(
                 ['composer', 'config', 'platform.php', $platform],
                 null,
@@ -332,7 +331,7 @@ class Deployer
 
             $command = [
                 'composer', 'install',
-                ...$build['flags'],
+                ...$plan->flags(),
                 '--no-interaction',
                 '--no-progress',
             ];
@@ -365,13 +364,9 @@ class Deployer
     }
 
 
-    private function buildPlatform(string $platform): string
+    private function remotePhp(): string
     {
-        if ($platform !== 'remote') {
-            return $platform;
-        }
-
-        $probe = (new \Rush\Tool\Code\Requirements\WebProbe())->inspect($this->target, $this->shell);
+        $probe = (new WebProbe())->inspect($this->target, $this->shell);
 
         return $probe['php'];
     }
