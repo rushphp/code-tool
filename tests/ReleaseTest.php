@@ -74,7 +74,9 @@ test('redirect stub falls back to tool defaults', function () {
 
     expect($stub['index'])->toContain("header('Location: https://staging.example.com')")
         ->and($stub['index'])->toContain('exit;')
-        ->and($stub['htaccess'])->toContain('RewriteRule ^(.*)$ index.php [L,QSA]');
+        ->and($stub['htaccess'])->toContain('RewriteRule ^(.*)$ index.php [L,QSA]')
+        ->and($stub['htaccess'])->toContain('_rush-check')
+        ->and($stub['htaccess'])->toContain('\.deploy');
 });
 
 

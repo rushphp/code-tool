@@ -91,6 +91,8 @@ class Deployer
             $this->check();
             $this->preflight->assertEnvExists();
 
+            $current = $this->remote->readCurrent() ?? [];
+            $wasRedirected = ($current['status'] ?? null) === 'redirected';
             $contentHash = (new ReleaseHasher())->hash($this->projectRoot);
             $releaseId = ReleaseId::fromHash($contentHash);
             $version = $this->releaseVersion();
@@ -111,6 +113,7 @@ class Deployer
                 $previousReleaseId,
                 $this->operator->toArray(),
                 $artifactHash,
+                $this->layout->fingerprint(),
             );
 
             $store = new ReleaseStore($this->projectRoot);
@@ -124,6 +127,10 @@ class Deployer
             $snapshot = $this->snapshots->create($manifest->toArray(), $previousReleaseId);
             $this->out('backup: '. $snapshot);
 
+            if ($wasRedirected) {
+                $this->unretire($current);
+            }
+
             $this->transfer->run($vendor, $this->hasRsync);
 
             $this->out('disabling maintenance');
@@ -136,6 +143,7 @@ class Deployer
             $this->remote->writeCurrent($manifest, $snapshot, 'current');
             $this->events->write('push', $manifest->releaseId, null, $this->target->name, $snapshot, [
                 'artifactVerified' => $artifactVerified,
+                'unretired' => $wasRedirected,
             ]);
 
             $this->snapshots->pruneBackups();
@@ -372,29 +380,31 @@ class Deployer
     }
 
 
-    /**
-     * @param list<string> $buildExclude
-     * @return list<string>
-     */
-    private function buildExcludes(string $include, array $buildExclude): array
+    /** @param array<string, mixed> $current */
+    private function unretire(array $current): void
     {
-        $excludes = $this->layout->excludesFor($include);
+        $retirement = $current['retirement'] ?? null;
+        $files = is_array($retirement) ? ($retirement['files'] ?? null) : null;
 
-        foreach ($buildExclude as $exclude)
-        {
-            $exclude = trim($exclude, '/');
+        if ( ! is_array($files) || $files === []) {
+            return;
+        }
 
-            if ($exclude === $include) {
-                $excludes[] = '*';
+        $commands = [];
+
+        foreach ($files as $file) {
+            if ( ! is_string($file) || $file === '' || $file === '.' || $file === '..'
+                || str_contains($file, '/') || str_contains($file, '\\')) {
                 continue;
             }
 
-            if (str_starts_with($exclude, $include .'/')) {
-                $excludes[] = substr($exclude, strlen($include) + 1);
-            }
+            $commands[] = 'rm -f '. Ssh::quote(rtrim($this->target->webroot, '/') .'/'. $file);
         }
 
-        return array_values(array_unique($excludes));
+        if ($commands !== []) {
+            $this->out('reactivating retired target');
+            $this->ssh->must($this->target, implode(' && ', $commands));
+        }
     }
 
 

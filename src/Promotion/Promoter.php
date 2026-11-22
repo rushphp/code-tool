@@ -194,6 +194,12 @@ final class Promoter
                 'redirectTo' => $redirectUrl,
                 'promotedTo' => $promotedTo,
                 'promotedAt' => gmdate('c'),
+                'backup' => $snapshot,
+                'previousReleaseId' => $current['previousReleaseId'] ?? null,
+                'retirement' => [
+                    'files' => ['index.php', '.htaccess'],
+                    'redirectTo' => $redirectUrl,
+                ],
             ]);
 
 

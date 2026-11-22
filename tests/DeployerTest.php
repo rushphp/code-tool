@@ -44,6 +44,7 @@ function deployDeployerShell(
     ?string $manifest = null,
     bool $failComposer = false,
     bool $composerNoVendor = false,
+    ?string $currentJson = null,
 ): FakeShell {
     return new FakeShell(function (array $command, ?string $stdin = null, ?string $cwd = null) use (
         $failWebrootRsync,
@@ -55,6 +56,7 @@ function deployDeployerShell(
         $manifest,
         $failComposer,
         $composerNoVendor,
+        $currentJson,
     ): ShellResult {
         $binary = $command[0];
         $remote = $command[count($command) - 1];
@@ -78,6 +80,13 @@ function deployDeployerShell(
 
         if ($binary === 'ssh')
         {
+            if ($currentJson !== null
+                && str_contains($remote, 'current.json')
+                && str_contains($remote, '__MISSING__'))
+            {
+                return new ShellResult(0, $currentJson, '');
+            }
+
             if (str_contains($remote, 'command -v rsync'))
             {
                 return new ShellResult(0, $hasRsync ? 'yes' : 'no', '');
@@ -353,6 +362,24 @@ test('push excludes nested target webroots', function () {
     expect(deployDeployerCalls($shell))
         ->toContain('--exclude=/dev')
         ->toContain("--exclude='./dev'");
+});
+
+
+test('push reactivates a retired target', function () {
+    $root = deployDeployerWorkspace();
+    $current = json_encode([
+        'releaseId' => 'abcdef123456-20261105T102030',
+        'status' => 'redirected',
+        'retirement' => ['files' => ['index.php', '.htaccess']],
+    ], JSON_THROW_ON_ERROR);
+    $shell = deployDeployerShell(currentJson: $current);
+    $deployer = deployTestDeployer($root, DeployFixtures::target(), $shell);
+
+    $deployer->push();
+
+    expect(deployDeployerCalls($shell))
+        ->toContain("rm -f '/srv/app/public_html/index.php'")
+        ->and(deployDeployerCalls($shell))->toContain("rm -f '/srv/app/public_html/.htaccess'");
 });
 
 

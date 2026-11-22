@@ -5,5 +5,7 @@ Options -Indexes
     RewriteOptions InheritDownOutside
     RewriteBase /
 
+    RewriteRule ^\.deploy(?:/|$) - [L]
+    RewriteRule ^_rush-check(?:/|$) - [L]
     RewriteRule ^(.*)$ index.php [L,QSA]
 </IfModule>
