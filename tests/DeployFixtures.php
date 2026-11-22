@@ -49,7 +49,7 @@ final class DeployFixtures
     public static function layoutArray(): array
     {
         return [
-            'php' => ['min' => '8.2'],
+            'php' => ['min' => '8.3'],
             'publish' => [
                 ['from' => 'application', 'to' => '$root/application'],
                 ['from' => 'public', 'to' => '$webroot'],

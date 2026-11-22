@@ -40,7 +40,7 @@ test('loads the layout and resolves root and webroot paths', function (): void {
     $layout = DeployFixtures::layout('/tmp/project');
     $target = layoutTarget();
 
-    expect($layout->phpMin())->toBe('8.2')
+    expect($layout->phpMin())->toBe('8.3')
         ->and($layout->usesRoot())->toBeTrue()
         ->and($layout->resolve('$root/application', $target))->toBe('/srv/app/application')
         ->and($layout->resolve('$webroot', $target))->toBe('/srv/app/public_html')
