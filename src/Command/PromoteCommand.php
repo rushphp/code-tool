@@ -30,7 +30,7 @@ final class PromoteCommand extends CommandAbstract
     {
         return [
             new Option('from', 'Source target to promote (development or staging)', true, null, true, 'target'),
-            new Option('force', 'Override an active production lock; recorded as an event'),
+            new Option('to', 'Destination target (defaults to the next environment)', true, null, false, 'target'),
         ];
     }
 
@@ -44,13 +44,26 @@ final class PromoteCommand extends CommandAbstract
 
         $config = Config::load($this->projectRoot .'/.rush/code/config.json');
         $source = $config->target($from);
+        $requested = $input->string('to');
+        $requested = $requested === '' ? null : $requested;
 
-        $next = EnvironmentChain::next($from, $config->names());
+        if ($requested !== null && ! in_array($requested, $config->names(), true)) {
+            throw new RuntimeException("--to target is not configured: {$requested}");
+        }
+
+        $next = $requested ?? EnvironmentChain::next($from, $config->names());
 
         if ($next === null) {
             $output->info("nothing to promote from {$from}");
 
             return ExitCode::Success->value;
+        }
+
+        $fromIndex = array_search($from, Config::TARGETS, true);
+        $toIndex = array_search($next, Config::TARGETS, true);
+
+        if ($fromIndex === false || $toIndex === false || $toIndex <= $fromIndex) {
+            throw new RuntimeException("cannot promote from {$from} to {$next}: destination must come later in the chain");
         }
 
         $destination = $config->target($next);
@@ -63,7 +76,7 @@ final class PromoteCommand extends CommandAbstract
         $release = $sourcePromoter->export();
 
         try {
-            $destinationPromoter->receive($release['archive'], $release['manifest'], $source->name, $input->bool('force'));
+            $destinationPromoter->receive($release['archive'], $release['manifest'], $source->name);
             $sourcePromoter->retire($destination->url, $destination->name);
         } finally {
             if ($release['temporary']) {

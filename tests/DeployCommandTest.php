@@ -280,6 +280,24 @@ test('promote moves the current release to the next target and retires the sourc
 });
 
 
+test('promote rejects a destination before the source', function () {
+    $root = deployPromoteWorkspace();
+    $shell = new FakeShell(fn (): \Rush\Tool\Code\ShellResult => new \Rush\Tool\Code\ShellResult(0, '', ''));
+    $stream = fopen('php://memory', 'w+');
+
+    if ($stream === false) {
+        throw new RuntimeException('could not open stream');
+    }
+
+    $command = new \Rush\Tool\Code\Command\PromoteCommand($root, $shell);
+
+    expect(fn () => $command->run(
+        deployCommandInput($command, ['--from=development', '--to=development']),
+        DeployFixtures::output($stream),
+    ))->toThrow(RuntimeException::class, 'destination must come later');
+});
+
+
 test('retire aborts when the source has nested webroots', function () {
     $root = DeployFixtures::workspace();
     $promoter = new \Rush\Tool\Code\Promotion\Promoter(

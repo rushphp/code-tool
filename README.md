@@ -70,6 +70,7 @@ events.
 rush code check --target=staging
 rush code push --target=staging
 rush code promote --from=staging
+rush code promote --from=development --to=production
 rush code releases
 rush code rollback --target=production
 ```
