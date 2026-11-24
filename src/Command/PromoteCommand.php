@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code\Command;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\ConfigException;
 use Rush\Contract\ExitCode;
 use Rush\Contract\InputInterface;
 use Rush\Contract\Option;
@@ -10,7 +10,6 @@ use Rush\Contract\OutputInterface;
 use Rush\Tool\Code\Config;
 use Rush\Tool\Code\Environment\EnvironmentChain;
 use Rush\Tool\Code\Promotion\Promoter;
-use Rush\Support\FileSystem;
 
 
 final class PromoteCommand extends CommandAbstract
@@ -39,16 +38,16 @@ final class PromoteCommand extends CommandAbstract
         $from = $input->string('from');
 
         if ($from === null || $from === '') {
-            throw new RuntimeException('--from is required');
+            throw new ConfigException('--from is required');
         }
 
-        $config = Config::load($this->projectRoot .'/.rush/code/config.json');
+        $config = $this->config();
         $source = $config->target($from);
         $requested = $input->string('to');
         $requested = $requested === '' ? null : $requested;
 
         if ($requested !== null && ! in_array($requested, $config->names(), true)) {
-            throw new RuntimeException("--to target is not configured: {$requested}");
+            throw new ConfigException("--to target is not configured: {$requested}");
         }
 
         $next = $requested ?? EnvironmentChain::next($from, $config->names());
@@ -63,7 +62,7 @@ final class PromoteCommand extends CommandAbstract
         $toIndex = array_search($next, Config::TARGETS, true);
 
         if ($fromIndex === false || $toIndex === false || $toIndex <= $fromIndex) {
-            throw new RuntimeException("cannot promote from {$from} to {$next}: destination must come later in the chain");
+            throw new ConfigException("cannot promote from {$from} to {$next}: destination must come later in the chain");
         }
 
         $destination = $config->target($next);
@@ -73,31 +72,19 @@ final class PromoteCommand extends CommandAbstract
         $layout->assertTargetCompatible($destination);
         $sourcePromoter = new Promoter($this->projectRoot, $source, $this->shell(), $output, $operator, $layout);
         $destinationPromoter = new Promoter($this->projectRoot, $destination, $this->shell(), $output, $operator, $layout);
-        $release = $sourcePromoter->export();
+        $release = $sourcePromoter->exportRelease();
 
         try {
-            $destinationPromoter->receive($release['archive'], $release['manifest'], $source->name);
+            $destinationPromoter->receive($release->archive, $release->manifest, $source->name);
             $sourcePromoter->retire($destination->url, $destination->name);
         } finally {
-            if ($release['temporary']) {
-                if ( ! FileSystem::tryDelete($release['archive'])) {
-                    $output->warning('warning: could not remove temporary release archive');
-                }
-
-                if ( ! FileSystem::tryDelete(dirname($release['archive']) .'/manifest.json')) {
-                    $output->warning('warning: could not remove temporary release manifest');
-                }
-
-                if ( ! FileSystem::tryDelete(dirname($release['archive']))) {
-                    $output->warning('warning: could not remove temporary release directory');
-                }
-            }
+            $release->cleanup($output);
         }
 
         $this->syncReleases($output);
 
         $output->success(
-            "promoted {$release['manifest']->releaseId} from {$source->name} to {$destination->name}",
+            "promoted {$release->manifest->releaseId} from {$source->name} to {$destination->name}",
         );
 
         return ExitCode::Success->value;

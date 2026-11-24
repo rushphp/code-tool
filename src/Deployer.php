@@ -2,29 +2,50 @@
 
 namespace Rush\Tool\Code;
 
-use RuntimeException;
-use Throwable;
 use Rush\Contract\OutputInterface;
-use Rush\Tool\Code\Backup\SnapshotStore;
-use Rush\Tool\Code\Deploy\BuildPlan;
-use Rush\Tool\Code\Event\EventWriter;
+use Rush\Support\FileSystem;
 use Rush\Support\Operator;
+use Rush\Tool\Code\Backup\SnapshotStore;
+use Rush\Tool\Code\Deploy\PathRules;
+use Rush\Tool\Code\Deploy\Pipeline\DeployContext;
+use Rush\Tool\Code\Deploy\Pipeline\Deployment;
+use Rush\Tool\Code\Deploy\Pipeline\RollbackGuard;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\ApplyOverridesStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\ArchiveStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\ArtifactHashStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\AssertEnvStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\BuildVendorStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\CheckStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\EnsureRemoteDirsStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\HashStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\MaintenanceStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\ManifestStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\PersistReleaseStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\PruneStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\PublishArtifactStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\PushEventStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\ReactivateStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\ReadCurrentStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\RestoreStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\RollbackEventStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\SelectBackupStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\SnapshotStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\TransferStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\UpdateCurrentStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\VerifyStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\VersionStep;
+use Rush\Tool\Code\Event\EventWriter;
+use Rush\Tool\Code\Maintenance;
 use Rush\Tool\Code\Preflight\Preflight;
-use Rush\Tool\Code\Requirements\WebProbe;
-use Rush\Tool\Code\Release\ArtifactVerifier;
-use Rush\Tool\Code\Release\ReleaseHasher;
-use Rush\Tool\Code\Release\ReleaseId;
-use Rush\Tool\Code\Release\ReleaseManifest;
 use Rush\Tool\Code\Release\ReleasePublisher;
-use Rush\Tool\Code\Release\ReleaseStore;
 use Rush\Tool\Code\Remote\RemoteFiles;
 use Rush\Tool\Code\Remote\Scp;
-use Rush\Support\FileSystem;
 use Rush\Tool\Code\Transport\Transfer;
 use Rush\Tool\Code\Verify\Verifier;
+use Throwable;
 
 
-class Deployer
+final class Deployer
 {
     private readonly Ssh $ssh;
 
@@ -48,7 +69,7 @@ class Deployer
 
     private readonly Layout $layout;
 
-    private bool $hasRsync = false;
+    private readonly PathRules $rules;
 
 
     public function __construct(
@@ -70,131 +91,55 @@ class Deployer
         $this->publisher = new ReleasePublisher($projectRoot, $target, $shell, $this->ssh, $this->scp, $this->remote, $output, $this->layout);
         $this->verifier = new Verifier($target, $shell, $output);
         $this->events = new EventWriter($target, $operator, $output, $projectRoot, $shell);
+        $this->rules = new PathRules($this->layout, $target);
     }
 
 
     public function check(): void
     {
-        $this->hasRsync = $this->preflight->check();
+        $this->preflight->check();
     }
 
 
     public function push(): void
     {
-        $build = null;
-        $releaseArchive = null;
-        $started = false;
-        $snapshot = null;
+        $context = $this->context();
 
-        try
-        {
-            $this->check();
-            $this->preflight->assertEnvExists();
+        try {
+            (new Deployment([
+                new CheckStep(),
+                new AssertEnvStep(),
+                new ReadCurrentStep(),
+                new HashStep(),
+                new VersionStep(),
+                new BuildVendorStep(),
+                new ArchiveStep(),
+                new ArtifactHashStep(),
+                new ManifestStep(),
+                new MaintenanceStep(true),
+                new EnsureRemoteDirsStep(),
+                new SnapshotStep(),
+                new ReactivateStep(),
+                new TransferStep(),
+                new MaintenanceStep(false),
+                new VerifyStep(),
+                new PersistReleaseStep(),
+                new PublishArtifactStep(),
+                new UpdateCurrentStep(),
+                new PushEventStep(),
+                new PruneStep(),
+            ]))->run($context);
 
-            $current = $this->remote->readCurrent() ?? [];
-            $wasRedirected = ($current['status'] ?? null) === 'redirected';
-            $contentHash = (new ReleaseHasher())->hash($this->projectRoot);
-            $releaseId = ReleaseId::fromHash($contentHash);
-            $version = $this->releaseVersion();
-            $previousReleaseId = $this->remote->currentReleaseId();
-
-            $build = $this->buildVendor();
-            $vendor = $build['vendor'] ?? null;
-            $releaseArchive = $this->publisher->createArchive($vendor);
-            $artifactHash = (new ArtifactVerifier())->hash($releaseArchive);
-
-            $manifest = new ReleaseManifest(
-                $releaseId,
-                $contentHash,
-                $version['version'],
-                $version['source'],
-                gmdate('c'),
-                $version['git'],
-                $previousReleaseId,
-                $this->operator->toArray(),
-                $artifactHash,
-                $this->layout->fingerprint(),
-            );
-
-            $store = new ReleaseStore($this->projectRoot);
-
-            $this->out('enabling maintenance');
-            $this->maintenance->enable($this->target);
-            $started = true;
-
-            $this->transfer->ensureRemoteDirs();
-
-            $snapshot = $this->snapshots->create($manifest->toArray(), $previousReleaseId);
-            $this->out('backup: '. $snapshot);
-
-            if ($wasRedirected) {
-                $this->unretire($current);
+            if ($context->manifest !== null) {
+                $this->out('release: '. $context->manifest->releaseId .' ('. $context->manifest->version .')');
             }
 
-            $this->transfer->run($vendor, $this->hasRsync);
-
-            $this->out('disabling maintenance');
-            $this->maintenance->disable($this->target);
-
-            $this->verifier->verify();
-
-            $store->persist($manifest);
-            $artifactVerified = $this->publisher->upload($manifest, $releaseArchive);
-            $this->remote->writeCurrent($manifest, $snapshot, 'current');
-            $this->events->write('push', $manifest->releaseId, null, $this->target->name, $snapshot, [
-                'artifactVerified' => $artifactVerified,
-                'unretired' => $wasRedirected,
-            ]);
-
-            $this->snapshots->pruneBackups();
-            $this->snapshots->pruneReleases($manifest->releaseId);
-            $this->events->prune($this->target->eventKeep);
-            $this->out('release: '. $manifest->releaseId .' ('. $manifest->version .')');
             $this->out('deploy complete');
-        }
-        catch (Throwable $error)
-        {
-            if ($started)
-            {
-                $this->out('error: '. $error->getMessage());
-
-                if ($snapshot === null)
-                {
-                    $this->out('no backup: maintenance remains active');
-                }
-                else
-                {
-                    try
-                    {
-                        $this->maintenance->enable($this->target);
-                        $this->snapshots->restore($snapshot);
-                        $this->transfer->applyOverrides($this->hasRsync);
-                        $this->maintenance->disable($this->target);
-                        $this->verifier->verify();
-                        $this->out('rollback complete');
-                    }
-                    catch (Throwable $rollback)
-                    {
-                        $this->out('ROLLBACK FAILED, maintenance remains active: '. $rollback->getMessage());
-                    }
-                }
-            }
-
+        } catch (Throwable $error) {
+            RollbackGuard::recoverDeployment($context, $error);
             throw $error;
-        }
-        finally
-        {
-            if ($releaseArchive !== null && ! FileSystem::tryDelete($releaseArchive)) {
-                $this->out('warning: could not remove temporary release archive');
-            }
-
-            if ($build !== null) {
-                try {
-                    FileSystem::removeDir($build['dir']);
-                } catch (Throwable $cleanup) {
-                    $this->out('warning: could not remove build directory: '. $cleanup->getMessage());
-                }
-            }
+        } finally {
+            $this->cleanUp($context);
         }
     }
 
@@ -210,68 +155,63 @@ class Deployer
 
     public function rollback(?string $timestamp): void
     {
-        $this->check();
-        $this->preflight->assertEnvExists();
+        $context = $this->context();
 
-        $backups = $this->snapshots->backups();
-
-        if ($timestamp === null)
-        {
-            if ($backups === [])
-            {
-                throw new RuntimeException('no backup found');
-            }
-
-            $timestamp = $backups[0];
-            $this->out('latest backup: '. $timestamp);
-        }
-
-        if (preg_match('/\A[0-9]{8}-[0-9]{6}\z/', $timestamp) !== 1)
-        {
-            throw new RuntimeException("invalid backup timestamp: {$timestamp}");
-        }
-
-        if ( ! in_array($timestamp, $backups, true))
-        {
-            throw new RuntimeException("backup not found: {$timestamp}");
-        }
-
-        $started = false;
-
-        try
-        {
-            $this->maintenance->enable($this->target);
-            $started = true;
-            $restored = $this->snapshots->restore($timestamp);
-            $previousReleaseId = $restored['previousReleaseId'] ?? null;
-
-            if (is_string($previousReleaseId) && $previousReleaseId !== '') {
-                $this->remote->writeCurrentReleaseId($previousReleaseId);
-            } else {
-                $this->remote->deleteCurrent();
-            }
-
-            $this->transfer->applyOverrides($this->hasRsync);
-            $this->maintenance->disable($this->target);
-            $this->verifier->verify();
-            $rollbackRelease = $restored['previousReleaseId'] ?? $restored['releaseId'] ?? 'unknown';
-            $this->events->write('rollback', is_string($rollbackRelease) ? $rollbackRelease : 'unknown', null, null, $timestamp);
-            $this->out('rollback complete');
-        }
-        catch (Throwable $error)
-        {
-            if ($started)
-            {
-                try
-                {
-                    $this->maintenance->enable($this->target);
-                }
-                catch (Throwable)
-                {
-                }
-            }
-
+        try {
+            (new Deployment([
+                new CheckStep(),
+                new AssertEnvStep(),
+                new SelectBackupStep($timestamp),
+                new MaintenanceStep(true),
+                new RestoreStep(),
+                new ApplyOverridesStep(),
+                new MaintenanceStep(false),
+                new VerifyStep(),
+                new RollbackEventStep(),
+            ]))->run($context);
+        } catch (Throwable $error) {
+            RollbackGuard::recoverRollback($context);
             throw $error;
+        }
+    }
+
+
+    private function context(): DeployContext
+    {
+        return new DeployContext(
+            $this->projectRoot,
+            $this->target,
+            $this->shell,
+            $this->output,
+            $this->operator,
+            $this->layout,
+            $this->ssh,
+            $this->scp,
+            $this->remote,
+            $this->snapshots,
+            $this->transfer,
+            $this->preflight,
+            $this->publisher,
+            $this->verifier,
+            $this->events,
+            $this->maintenance,
+            $this->rules,
+        );
+    }
+
+
+    private function cleanUp(DeployContext $context): void
+    {
+        if ($context->releaseArchive !== null && ! FileSystem::tryDelete($context->releaseArchive)) {
+            $this->out('warning: could not remove temporary release archive');
+        }
+
+        if ($context->build !== null) {
+            try {
+                FileSystem::removeDir($context->build['dir']);
+            } catch (Throwable $cleanup) {
+                $this->out('warning: could not remove build directory: '. $cleanup->getMessage());
+            }
         }
     }
 
@@ -279,173 +219,5 @@ class Deployer
     protected function out(string $message): void
     {
         $this->output->line('['. $this->target->name .'] '. $message);
-    }
-
-
-    /** @return null|array{dir: string, vendor: string} */
-    private function buildVendor(): ?array
-    {
-        $plan = new BuildPlan($this->layout);
-
-        if ( ! $plan->enabled()) {
-            return null;
-        }
-
-        $directory = FileSystem::temporaryDirectory();
-
-        try
-        {
-            foreach ($plan->include() as $include)
-            {
-                $source = $this->projectRoot .'/'. $include;
-
-                if (is_file($source)) {
-                    FileSystem::copyFile($source, $directory .'/'. $include);
-                    continue;
-                }
-
-                if ( ! is_dir($source)) {
-                    throw new RuntimeException("build include missing: {$include}");
-                }
-
-                FileSystem::copyDir(
-                    $source,
-                    $directory .'/'. $include,
-                    $plan->excludesFor($include),
-                );
-            }
-
-            foreach (['composer.json', 'composer.lock'] as $file)
-            {
-                if ( ! is_file($directory .'/'. $file)) {
-                    throw new RuntimeException("missing build file: {$file}");
-                }
-            }
-
-            $rawPlatform = $this->layout->build()['platform'];
-            $remotePhp = $rawPlatform === 'remote' ? $this->remotePhp() : null;
-            $platform = $plan->platform($remotePhp);
-            $result = $this->shell->run(
-                ['composer', 'config', 'platform.php', $platform],
-                null,
-                $directory,
-            );
-
-            if ( ! $result->ok()) {
-                $detail = trim($result->stderr) !== '' ? trim($result->stderr) : trim($result->stdout);
-
-                throw new RuntimeException("composer failed:\n". $detail);
-            }
-
-            $command = [
-                'composer', 'install',
-                ...$plan->flags(),
-                '--no-interaction',
-                '--no-progress',
-            ];
-
-            $this->out('build vendor: '. implode(' ', $command));
-
-            $result = $this->shell->run($command, null, $directory);
-
-            if ( ! $result->ok())
-            {
-                $detail = trim($result->stderr) !== '' ? trim($result->stderr) : trim($result->stdout);
-
-                throw new RuntimeException("composer failed:\n". $detail);
-            }
-
-            $vendor = $directory .'/vendor';
-
-            if ( ! is_dir($vendor))
-            {
-                throw new RuntimeException('composer did not generate the vendor directory');
-            }
-
-            return ['dir' => $directory, 'vendor' => $vendor];
-        }
-        catch (Throwable $error)
-        {
-            FileSystem::removeDir($directory);
-            throw $error;
-        }
-    }
-
-
-    private function remotePhp(): string
-    {
-        $probe = (new WebProbe())->inspect($this->target, $this->shell);
-
-        return $probe['php'];
-    }
-
-
-    /** @param array<string, mixed> $current */
-    private function unretire(array $current): void
-    {
-        $retirement = $current['retirement'] ?? null;
-        $files = is_array($retirement) ? ($retirement['files'] ?? null) : null;
-
-        if ( ! is_array($files) || $files === []) {
-            return;
-        }
-
-        $commands = [];
-
-        foreach ($files as $file) {
-            if ( ! is_string($file) || $file === '' || $file === '.' || $file === '..'
-                || str_contains($file, '/') || str_contains($file, '\\')) {
-                continue;
-            }
-
-            $commands[] = 'rm -f '. Ssh::quote(rtrim($this->target->webroot, '/') .'/'. $file);
-        }
-
-        if ($commands !== []) {
-            $this->out('reactivating retired target');
-            $this->ssh->must($this->target, implode(' && ', $commands));
-        }
-    }
-
-
-    /** @return array{version: string, source: string, git: null|array{commit: string, branch: string, dirty: bool}} */
-    private function releaseVersion(): array
-    {
-        $versionFile = $this->projectRoot .'/VERSION';
-        $version = is_file($versionFile) ? trim((string) file_get_contents($versionFile)) : '';
-        $source = 'version';
-
-        if ($version === '') {
-            $env = getenv('DEPLOY_VERSION');
-            $version = is_string($env) ? trim($env) : '';
-            $source = 'env';
-        }
-
-        if ($version === '') {
-            $version = '0.0.0';
-            $source = 'none';
-        }
-
-        return ['version' => $version, 'source' => $source, 'git' => $this->gitInfo()];
-    }
-
-
-    /** @return null|array{commit: string, branch: string, dirty: bool} */
-    private function gitInfo(): ?array
-    {
-        $commit = $this->shell->run(['git', '-C', $this->projectRoot, 'rev-parse', '--short', 'HEAD']);
-
-        if ( ! $commit->ok() || trim($commit->stdout) === '') {
-            return null;
-        }
-
-        $branch = $this->shell->run(['git', '-C', $this->projectRoot, 'rev-parse', '--abbrev-ref', 'HEAD']);
-        $status = $this->shell->run(['git', '-C', $this->projectRoot, 'status', '--porcelain']);
-
-        return [
-            'commit' => trim($commit->stdout),
-            'branch' => $branch->ok() ? trim($branch->stdout) : '',
-            'dirty' => $status->ok() && trim($status->stdout) !== '',
-        ];
     }
 }

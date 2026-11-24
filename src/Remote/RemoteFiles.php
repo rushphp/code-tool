@@ -2,11 +2,10 @@
 
 namespace Rush\Tool\Code\Remote;
 
-use JsonException;
-use RuntimeException;
 use Rush\Tool\Code\Deploy\DeployPaths;
 use Rush\Tool\Code\Release\ReleaseManifest;
 use Rush\Tool\Code\Ssh;
+use Rush\Tool\Code\Support\Json;
 use Rush\Tool\Code\Target;
 
 
@@ -101,16 +100,7 @@ final class RemoteFiles
     /** @param array<string, mixed> $data */
     public function writeJson(string $path, array $data): void
     {
-        try {
-            $json = json_encode(
-                $data,
-                JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
-            ) ."\n";
-        } catch (JsonException $exception) {
-            throw new RuntimeException('could not encode remote JSON: '. $exception->getMessage(), 0, $exception);
-        }
-
-        $this->writeFile($path, $json);
+        $this->writeFile($path, Json::encode($data, 'remote JSON'));
     }
 
 

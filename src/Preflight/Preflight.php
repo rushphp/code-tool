@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code\Preflight;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\DeployException;
 use Rush\Contract\OutputInterface;
 use Rush\Tool\Code\Layout;
 use Rush\Tool\Code\Requirements\ComposerRequirements;
@@ -37,7 +37,7 @@ final class Preflight
         $this->out('check');
 
         if (version_compare(PHP_VERSION, $this->layout->phpMin(), '<')) {
-            throw new RuntimeException(
+            throw new DeployException(
                 'local PHP '. PHP_VERSION .' is below the required '. $this->layout->phpMin(),
             );
         }
@@ -47,7 +47,7 @@ final class Preflight
         if ($build['composer']) {
             foreach (['composer.json', 'composer.lock'] as $file) {
                 if ( ! is_file($this->projectRoot .'/'. $file)) {
-                    throw new RuntimeException("missing file: {$file}");
+                    throw new DeployException("missing file: {$file}");
                 }
             }
         }
@@ -106,7 +106,7 @@ final class Preflight
             return;
         }
 
-        throw new RuntimeException(
+        throw new DeployException(
             "missing env for '{$this->target->name}': add ". implode(', ', $this->missingEnv),
         );
     }
@@ -135,7 +135,7 @@ final class Preflight
         $file = $auth->filePath();
 
         if ( ! is_file($file) || ! is_readable($file)) {
-            throw new RuntimeException('ssh auth file is not readable: '. $file);
+            throw new DeployException('ssh auth file is not readable: '. $file);
         }
 
         if ($auth->isPassword()) {
@@ -169,7 +169,7 @@ final class Preflight
         $status = trim($result->output());
 
         if ($status === '200') {
-            throw new RuntimeException(
+            throw new DeployException(
                 '.deploy is publicly accessible: protect '. $state .' in the web server',
             );
         }
@@ -181,7 +181,7 @@ final class Preflight
         $probe = (new WebProbe())->inspect($this->target, $this->shell);
 
         if (version_compare($probe['php'], $this->layout->phpMin(), '<')) {
-            throw new RuntimeException(
+            throw new DeployException(
                 'remote PHP '. $probe['php'] .' is below the required '. $this->layout->phpMin(),
             );
         }
@@ -208,7 +208,7 @@ final class Preflight
         {
             $this->out(
                 'warning: webroot is not directly under root; add an entrypoint at '
-                .'.rush/code/override/'. $this->target->name .'/'. $this->layout->entrypoint(),
+                . Paths::override($this->projectRoot, $this->target->name, $this->layout->entrypoint()),
             );
         }
     }

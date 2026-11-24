@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code\Verify;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\DeployException;
 use Rush\Contract\OutputInterface;
 use Rush\Tool\Code\Shell;
 use Rush\Tool\Code\Target;
@@ -25,7 +25,7 @@ final class Verifier
 
         if ($root !== '200')
         {
-            throw new RuntimeException('verify: GET '. $target->url .' returned '. $root);
+            throw new DeployException('verify: GET '. $target->url .' returned '. $root);
         }
 
         $body = $this->shell->mustRun(
@@ -34,14 +34,14 @@ final class Verifier
 
         if (preg_match('/Fatal error|Uncaught|Fallback::emit/i', $body) === 1)
         {
-            throw new RuntimeException('verify: response contains a fatal error');
+            throw new DeployException('verify: response contains a fatal error');
         }
 
         $missing = rtrim($target->url, '/') .'/missing';
 
         if ($this->httpStatus($missing) !== '404')
         {
-            throw new RuntimeException('verify: GET '. $missing .' did not return 404');
+            throw new DeployException('verify: GET '. $missing .' did not return 404');
         }
 
         $this->out('verify: 200 at / and 404 at /missing');
@@ -60,7 +60,7 @@ final class Verifier
         $location = $parts[1] ?? '';
 
         if ($status !== '302' || rtrim($location, '/') !== rtrim($expected, '/')) {
-            throw new RuntimeException(
+            throw new DeployException(
                 "retire: expected 302 to {$expected}, got {$status} {$location}",
             );
         }

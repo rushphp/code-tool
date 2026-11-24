@@ -2,10 +2,10 @@
 
 namespace Rush\Tool\Code\Release;
 
+use Rush\Tool\Code\Exception\ReleaseException;
 use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
-use RuntimeException;
 use SplFileInfo;
 use Rush\Tool\Code\Layout;
 
@@ -33,7 +33,7 @@ final class ReleaseHasher
             }
 
             if ( ! is_file($source)) {
-                throw new RuntimeException("missing source: {$entry['from']}");
+                throw new ReleaseException("missing source: {$entry['from']}");
             }
 
             $files[trim($entry['from'], '/')] = $source;
@@ -44,7 +44,7 @@ final class ReleaseHasher
                 $path = $root .'/'. $file;
 
                 if ( ! is_file($path)) {
-                    throw new RuntimeException("missing file: {$file}");
+                    throw new ReleaseException("missing file: {$file}");
                 }
 
                 if ( ! isset($files[$file])) {
@@ -61,7 +61,7 @@ final class ReleaseHasher
             $hash = hash_file('sha256', $path);
 
             if ($hash === false) {
-                throw new RuntimeException("could not hash file: {$relative}");
+                throw new ReleaseException("could not hash file: {$relative}");
             }
 
             $manifest .= $relative ."\0". $hash ."\n";

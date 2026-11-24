@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\SecurityException;
 
 
 final class SshAuth
@@ -40,7 +40,7 @@ final class SshAuth
         $home = getenv('HOME');
 
         if ($home === false || $home === '') {
-            throw new RuntimeException('HOME is not set to expand '. $this->file);
+            throw new SecurityException('HOME is not set to expand '. $this->file);
         }
 
         return rtrim($home, '/') .'/'. substr($this->file, 2);
@@ -52,17 +52,17 @@ final class SshAuth
         $file = $this->filePath();
 
         if ( ! is_file($file) || ! is_readable($file)) {
-            throw new RuntimeException('ssh auth password file is not readable: '. $file);
+            throw new SecurityException('ssh auth password file is not readable: '. $file);
         }
 
         $password = file_get_contents($file);
 
         if ($password === false) {
-            throw new RuntimeException('ssh auth password file could not be read: '. $file);
+            throw new SecurityException('ssh auth password file could not be read: '. $file);
         }
 
         if ($password === '') {
-            throw new RuntimeException('ssh auth password file is empty: '. $file);
+            throw new SecurityException('ssh auth password file is empty: '. $file);
         }
 
         return $password;

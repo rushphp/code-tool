@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code\Requirements;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\DeployException;
 
 
 final class ComposerRequirements
@@ -20,25 +20,25 @@ final class ComposerRequirements
     public static function fromFile(string $file): self
     {
         if ( ! is_file($file)) {
-            throw new RuntimeException("composer.json not found: {$file}");
+            throw new DeployException("composer.json not found: {$file}");
         }
 
         $raw = file_get_contents($file);
 
         if ($raw === false) {
-            throw new RuntimeException("could not read composer.json: {$file}");
+            throw new DeployException("could not read composer.json: {$file}");
         }
 
         $data = json_decode($raw, true);
 
         if ( ! is_array($data)) {
-            throw new RuntimeException('invalid composer.json');
+            throw new DeployException('invalid composer.json');
         }
 
         $require = $data['require'] ?? [];
 
         if ( ! is_array($require)) {
-            throw new RuntimeException("composer.json 'require' must be an object");
+            throw new DeployException("composer.json 'require' must be an object");
         }
 
         $php = is_string($require['php'] ?? null) ? $require['php'] : null;
@@ -60,7 +60,7 @@ final class ComposerRequirements
     public function assert(array $probe): void
     {
         if ($this->php !== null && ! $this->satisfies($probe['php'], $this->php)) {
-            throw new RuntimeException(
+            throw new DeployException(
                 "requirements: PHP {$this->php} required, remote has {$probe['php']}",
             );
         }
@@ -69,7 +69,7 @@ final class ComposerRequirements
 
         foreach ($this->extensions as $extension) {
             if ( ! in_array(strtolower($extension), $loaded, true)) {
-                throw new RuntimeException("requirements: missing PHP extension {$extension}");
+                throw new DeployException("requirements: missing PHP extension {$extension}");
             }
         }
     }
@@ -84,7 +84,7 @@ final class ComposerRequirements
         }
 
         if (str_contains($constraint, '||')) {
-            throw new RuntimeException('requirements: unsupported PHP constraint (||)');
+            throw new DeployException('requirements: unsupported PHP constraint (||)');
         }
 
         $version = preg_replace('/[^0-9.].*/', '', $version) ?: '0.0.0';

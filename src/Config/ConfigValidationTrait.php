@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code\Config;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\ConfigException;
 
 
 trait ConfigValidationTrait
@@ -17,7 +17,7 @@ trait ConfigValidationTrait
 
         if ( ! is_array($value))
         {
-            throw new RuntimeException("config: '{$key}' must be an object");
+            throw new ConfigException("config: '{$key}' must be an object");
         }
 
         return $value;
@@ -33,7 +33,7 @@ trait ConfigValidationTrait
 
         if ( ! is_string($value) || trim($value) === '')
         {
-            throw new RuntimeException("config: '{$key}' must be a non-empty string");
+            throw new ConfigException("config: '{$key}' must be a non-empty string");
         }
 
         return trim($value);
@@ -54,7 +54,7 @@ trait ConfigValidationTrait
 
         if ( ! is_string($value) || trim($value) === '')
         {
-            throw new RuntimeException("config: '{$key}' must be a non-empty string");
+            throw new ConfigException("config: '{$key}' must be a non-empty string");
         }
 
         return trim($value);
@@ -70,7 +70,7 @@ trait ConfigValidationTrait
 
         if ( ! is_int($value))
         {
-            throw new RuntimeException("config: '{$key}' must be an integer");
+            throw new ConfigException("config: '{$key}' must be an integer");
         }
 
         return $value;
@@ -84,7 +84,7 @@ trait ConfigValidationTrait
     {
         if ( ! is_array($value))
         {
-            throw new RuntimeException('config: invalid list');
+            throw new ConfigException('config: invalid list');
         }
 
         $items = [];
@@ -93,7 +93,7 @@ trait ConfigValidationTrait
         {
             if ( ! is_string($item))
             {
-                throw new RuntimeException('config: list item must be a string');
+                throw new ConfigException('config: list item must be a string');
             }
 
             $items[] = $item;
@@ -109,7 +109,7 @@ trait ConfigValidationTrait
         $value = $keep[$key] ?? $default;
 
         if ( ! is_int($value) || $value < 1) {
-            throw new RuntimeException("config: 'keep.{$key}' must be an integer >= 1");
+            throw new ConfigException("config: 'keep.{$key}' must be an integer >= 1");
         }
 
         return $value;
@@ -136,7 +136,7 @@ trait ConfigValidationTrait
             {
                 if ($segments === [])
                 {
-                    throw new RuntimeException("config: ssh.auth.file escapes project root: {$file}");
+                    throw new ConfigException("config: ssh.auth.file escapes project root: {$file}");
                 }
 
                 array_pop($segments);
@@ -148,7 +148,7 @@ trait ConfigValidationTrait
 
         if ($segments === [])
         {
-            throw new RuntimeException("config: invalid ssh.auth.file: {$file}");
+            throw new ConfigException("config: invalid ssh.auth.file: {$file}");
         }
 
         return rtrim($root, '/') .'/'. implode('/', $segments);

@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code;
 
-class Target
+final class Target
 {
     /**
      * @param list<string> $preserve
@@ -43,5 +43,28 @@ class Target
     public function stateDir(): string
     {
         return rtrim($this->root ?? $this->webroot, '/') .'/.deploy';
+    }
+
+
+    /** @param list<string> $nestedWebroots */
+    public function withNestedWebroots(array $nestedWebroots): self
+    {
+        return new self(
+            $this->name,
+            $this->sshHost,
+            $this->sshUser,
+            $this->sshPort,
+            $this->sshAuth,
+            $this->webroot,
+            $this->root,
+            $this->rootBase,
+            $this->rootDir,
+            $this->url,
+            $this->preserve,
+            $this->backupKeep,
+            array_values(array_unique($nestedWebroots)),
+            $this->releaseKeep,
+            $this->eventKeep,
+        );
     }
 }

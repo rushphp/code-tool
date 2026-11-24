@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\ShellException;
 
 
 class Shell
@@ -31,7 +31,7 @@ class Shell
 
         if ( ! is_resource($process))
         {
-            throw new RuntimeException('could not execute: '. implode(' ', $command));
+            throw new ShellException('could not execute: '. implode(' ', $command));
         }
 
         if ($stdin !== null)
@@ -69,7 +69,7 @@ class Shell
         {
             $detail = trim($result->stderr) !== '' ? trim($result->stderr) : trim($result->stdout);
 
-            throw new RuntimeException(
+            throw new ShellException(
                 'command failed ('. $result->code .'): '. implode(' ', $command)
                 . ($detail !== '' ? "\n". $detail : ''),
             );

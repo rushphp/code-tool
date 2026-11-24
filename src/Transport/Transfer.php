@@ -6,7 +6,9 @@ use Rush\Contract\OutputInterface;
 use Rush\Tool\Code\Deploy\DeployPaths;
 use Rush\Tool\Code\Deploy\PathRules;
 use Rush\Tool\Code\Layout;
+use Rush\Tool\Code\Exception\TransportException;
 use Rush\Tool\Code\Remote\Scp;
+use Rush\Tool\Code\Remote\SshOptions;
 use Rush\Tool\Code\Shell;
 use Rush\Tool\Code\Ssh;
 use Rush\Support\FileSystem;
@@ -63,7 +65,7 @@ final class Transfer
 
         if ($vendor !== null) {
             if ($target->root === null) {
-                throw new \RuntimeException("transport: target '{$target->name}' requires a root for vendor");
+                throw new TransportException("transport: target '{$target->name}' requires a root for vendor");
             }
 
             $directories[] = $target->root .'/vendor';
@@ -88,7 +90,7 @@ final class Transfer
     public function applyOverrides(bool $hasRsync): void
     {
         foreach ($this->layout->publish() as $entry) {
-            $source = rtrim($this->projectRoot, '/') .'/.rush/code/override/'. $this->target->name .'/'. $entry['from'];
+            $source = DeployPaths::localOverride($this->projectRoot, $this->target->name, $entry['from']);
 
             if ( ! is_dir($source) && ! is_file($source)) {
                 continue;
@@ -126,7 +128,7 @@ final class Transfer
             $excludes = $this->entryExcludes($entry);
 
             if ( ! is_dir($source) && ! is_file($source)) {
-                throw new \RuntimeException("transport: missing source: {$entry['from']}");
+                throw new TransportException("transport: missing source: {$entry['from']}");
             }
 
             $this->out('rsync '. $entry['from']);
@@ -143,7 +145,7 @@ final class Transfer
             $root = $this->target->root;
 
             if ($root === null) {
-                throw new \RuntimeException("transport: target '{$this->target->name}' requires a root for vendor");
+                throw new TransportException("transport: target '{$this->target->name}' requires a root for vendor");
             }
 
             $this->out('rsync vendor');
@@ -160,7 +162,7 @@ final class Transfer
             $excludes = $this->entryExcludes($entry);
 
             if ( ! is_dir($source) && ! is_file($source)) {
-                throw new \RuntimeException("transport: missing source: {$entry['from']}");
+                throw new TransportException("transport: missing source: {$entry['from']}");
             }
 
             if (is_file($source)) {
@@ -204,7 +206,7 @@ final class Transfer
             $root = $this->target->root;
 
             if ($root === null) {
-                throw new \RuntimeException("transport: target '{$this->target->name}' requires a root for vendor");
+                throw new TransportException("transport: target '{$this->target->name}' requires a root for vendor");
             }
 
             $this->secureDirectory($vendor, $root .'/vendor');
@@ -290,17 +292,6 @@ HTACCESS;
         bool $delete = true,
     ): array {
         $target = $this->target;
-        $sshParts = [
-            ...$target->sshAuth->prefix('ssh'),
-            '-p', (string) $target->sshPort,
-            ...$target->sshAuth->options(),
-            '-o', 'ConnectTimeout=15',
-        ];
-
-        $ssh = implode(' ', array_map(
-            static fn (string $part): string => Ssh::quote($part),
-            $sshParts,
-        ));
 
         $args = [
             'rsync', '-az',
@@ -308,7 +299,7 @@ HTACCESS;
             '--delay-updates',
             '--protect-args',
             '--itemize-changes',
-            '-e', $ssh,
+            '-e', SshOptions::rsyncRemoteShell($target),
         ];
 
         if ($delete) {

@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code\Command;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\ConfigException;
 use Rush\Contract\ExitCode;
 use Rush\Contract\InputInterface;
 use Rush\Contract\Option;
@@ -38,7 +38,7 @@ final class RollbackCommand extends CommandAbstract
 
         if ($input->bool('list')) {
             if ($input->has('timestamp')) {
-                throw new RuntimeException('--list and --timestamp cannot be used together');
+                throw new ConfigException('--list and --timestamp cannot be used together');
             }
 
             $backups = $deployer->backups();
@@ -61,7 +61,7 @@ final class RollbackCommand extends CommandAbstract
         $timestamp = $input->string('timestamp');
 
         if ($input->has('timestamp') && ($timestamp === null || $timestamp === '')) {
-            throw new RuntimeException('--timestamp requires a value');
+            throw new ConfigException('--timestamp requires a value');
         }
 
         $deployer->rollback($timestamp);

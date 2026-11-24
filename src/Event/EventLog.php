@@ -2,11 +2,12 @@
 
 namespace Rush\Tool\Code\Event;
 
-use JsonException;
-use RuntimeException;
+use Rush\Support\FileSystem;
+use Rush\Tool\Code\Deploy\DeployPaths;
 use Rush\Tool\Code\Remote\Scp;
 use Rush\Tool\Code\Shell;
 use Rush\Tool\Code\Ssh;
+use Rush\Tool\Code\Support\Json;
 use Rush\Tool\Code\Target;
 
 
@@ -33,14 +34,7 @@ final class EventLog
             .'-'. bin2hex(random_bytes(3))
             .'.json';
 
-        try {
-            $json = json_encode(
-                $event->toArray(),
-                JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
-            ) ."\n";
-        } catch (JsonException $exception) {
-            throw new RuntimeException('could not encode deploy event: '. $exception->getMessage(), 0, $exception);
-        }
+        $json = Json::encode($event->toArray(), 'deploy event');
 
         $this->ensureLocalDirectory();
         $this->ssh->must($this->target, 'mkdir -p '. Ssh::quote($this->remoteDirectory()));
@@ -50,9 +44,7 @@ final class EventLog
             $json,
         );
 
-        if (file_put_contents($this->localPath($name), $json) === false) {
-            throw new RuntimeException("could not write local deploy event: {$name}");
-        }
+        FileSystem::write($this->localPath($name), $json, 0600);
 
         return $name;
     }
@@ -104,7 +96,7 @@ final class EventLog
 
     public function localDirectory(): string
     {
-        return rtrim($this->projectRoot, '/') .'/.rush/code/events';
+        return DeployPaths::localEvents($this->projectRoot);
     }
 
     public function localPath(string $name): string
@@ -125,11 +117,7 @@ final class EventLog
 
     private function ensureLocalDirectory(): void
     {
-        $directory = $this->localDirectory();
-
-        if ( ! is_dir($directory) && ! mkdir($directory, 0700, true) && ! is_dir($directory)) {
-            throw new RuntimeException("could not create local event directory: {$directory}");
-        }
+        FileSystem::ensureDirectory($this->localDirectory(), 0700);
     }
 
 

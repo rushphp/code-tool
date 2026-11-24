@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code\Config;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\ConfigException;
 use Rush\Tool\Code\Target;
 
 
@@ -30,21 +30,21 @@ final class TargetGraph
 
                 if ($left->root !== null && $left->root === $right->root)
                 {
-                    throw new RuntimeException(
+                    throw new ConfigException(
                         "config: targets '{$leftName}' and '{$rightName}' must not share root '{$left->root}' on the same server",
                     );
                 }
 
                 if ($left->webroot === $right->webroot)
                 {
-                    throw new RuntimeException(
+                    throw new ConfigException(
                         "config: targets '{$leftName}' and '{$rightName}' must not share webroot '{$left->webroot}' on the same server",
                     );
                 }
 
                 if (self::normalizeUrl($left->url) === self::normalizeUrl($right->url))
                 {
-                    throw new RuntimeException(
+                    throw new ConfigException(
                         "config: targets '{$leftName}' and '{$rightName}' must not share url '{$left->url}' on the same server",
                     );
                 }
@@ -88,7 +88,7 @@ final class TargetGraph
 
                 if (str_contains($relative, '/'))
                 {
-                    throw new RuntimeException(
+                    throw new ConfigException(
                         "config: target '{$otherName}' webroot must be a direct child of '{$name}' webroot or outside it",
                     );
                 }
@@ -96,23 +96,7 @@ final class TargetGraph
                 $nested[] = $relative;
             }
 
-            $result[$name] = new Target(
-                $target->name,
-                $target->sshHost,
-                $target->sshUser,
-                $target->sshPort,
-                $target->sshAuth,
-                $target->webroot,
-                $target->root,
-                $target->rootBase,
-                $target->rootDir,
-                $target->url,
-                $target->preserve,
-                $target->backupKeep,
-                array_values(array_unique($nested)),
-                $target->releaseKeep,
-                $target->eventKeep,
-            );
+            $result[$name] = $target->withNestedWebroots($nested);
         }
 
         return $result;

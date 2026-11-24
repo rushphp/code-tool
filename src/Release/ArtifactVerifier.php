@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code\Release;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\ReleaseException;
 use Rush\Tool\Code\Shell;
 use Rush\Tool\Code\Ssh;
 use Rush\Tool\Code\Target;
@@ -15,7 +15,7 @@ final class ArtifactVerifier
         $hash = hash_file('sha256', $file);
 
         if ($hash === false) {
-            throw new RuntimeException("could not hash artifact: {$file}");
+            throw new ReleaseException("could not hash artifact: {$file}");
         }
 
         return 'sha256:'. $hash;

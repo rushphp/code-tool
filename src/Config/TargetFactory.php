@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code\Config;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\ConfigException;
 use Rush\Tool\Code\SshAuth;
 use Rush\Tool\Code\Target;
 
@@ -22,7 +22,7 @@ final class TargetFactory
         $port = self::optionalInt($ssh, 'port', 22);
 
         if (($ssh['identity'] ?? null) !== null) {
-            throw new RuntimeException(
+            throw new ConfigException(
                 "config: target '{$name}' must replace 'ssh.identity' with 'ssh.auth'",
             );
         }
@@ -31,7 +31,7 @@ final class TargetFactory
 
         if ($port < 1 || $port > 65535)
         {
-            throw new RuntimeException("config: target '{$name}' has an invalid SSH port");
+            throw new ConfigException("config: target '{$name}' has an invalid SSH port");
         }
 
         $webroot = self::path($name, 'webroot', self::requireString($data, 'webroot'));
@@ -42,12 +42,12 @@ final class TargetFactory
         {
             if ($rootDirectory === $webroot)
             {
-                throw new RuntimeException("config: target '{$name}' must not use the same 'root' and 'webroot'");
+                throw new ConfigException("config: target '{$name}' must not use the same 'root' and 'webroot'");
             }
 
             if (str_starts_with($rootDirectory .'/', $webroot .'/'))
             {
-                throw new RuntimeException("config: target '{$name}' must not place 'root' inside 'webroot'");
+                throw new ConfigException("config: target '{$name}' must not place 'root' inside 'webroot'");
             }
         }
 
@@ -55,14 +55,14 @@ final class TargetFactory
 
         if (filter_var($url, FILTER_VALIDATE_URL) === false)
         {
-            throw new RuntimeException("config: target '{$name}' has an invalid 'url'");
+            throw new ConfigException("config: target '{$name}' has an invalid 'url'");
         }
 
         $scheme = parse_url($url, PHP_URL_SCHEME);
 
         if ( ! is_string($scheme) || ! in_array($scheme, ['http', 'https'], true))
         {
-            throw new RuntimeException("config: target '{$name}' requires an http or https 'url'");
+            throw new ConfigException("config: target '{$name}' requires an http or https 'url'");
         }
 
         $preserve = self::stringList($data['preserve'] ?? []);
@@ -71,14 +71,14 @@ final class TargetFactory
         {
             if ( ! str_starts_with($pattern, '/'))
             {
-                throw new RuntimeException("config: target '{$name}' has an invalid preserve pattern '{$pattern}'");
+                throw new ConfigException("config: target '{$name}' has an invalid preserve pattern '{$pattern}'");
             }
         }
 
         $keep = $data['keep'] ?? [];
 
         if ( ! is_array($keep)) {
-            throw new RuntimeException("config: 'keep' must be an object");
+            throw new ConfigException("config: 'keep' must be an object");
         }
 
         $backupKeep = self::keep($keep, 'backup', 3);
@@ -111,7 +111,7 @@ final class TargetFactory
         $auth = $ssh['auth'] ?? null;
 
         if ( ! is_array($auth)) {
-            throw new RuntimeException(
+            throw new ConfigException(
                 "config: target '{$name}' requires an 'ssh.auth' object",
             );
         }
@@ -120,7 +120,7 @@ final class TargetFactory
         $file = self::requireString($auth, 'file');
 
         if ( ! in_array($type, [SshAuth::TYPE_KEY, SshAuth::TYPE_PASS], true)) {
-            throw new RuntimeException(
+            throw new ConfigException(
                 "config: target '{$name}' has an invalid 'ssh.auth.type'; use: key, pass",
             );
         }
@@ -133,33 +133,30 @@ final class TargetFactory
     {
         if ( ! str_starts_with($value, '/'))
         {
-            throw new RuntimeException("config: target '{$name}' requires an absolute '{$key}'");
+            throw new ConfigException("config: target '{$name}' requires an absolute '{$key}'");
         }
 
         $path = rtrim($value, '/');
 
         if ($path === '')
         {
-            throw new RuntimeException("config: target '{$name}' has a root-level '{$key}'");
+            throw new ConfigException("config: target '{$name}' has a root-level '{$key}'");
         }
 
         if (str_contains($path, '\\') || str_contains($path, '~'))
         {
-            throw new RuntimeException("config: target '{$name}' has an invalid '{$key}'");
+            throw new ConfigException("config: target '{$name}' has an invalid '{$key}'");
         }
 
         if (preg_match('#(^|/)\.{1,2}(/|$)#', $path) === 1)
         {
-            throw new RuntimeException("config: target '{$name}' has a traversal in '{$key}'");
+            throw new ConfigException("config: target '{$name}' has a traversal in '{$key}'");
         }
 
         return $path;
     }
 
 
-    /**
-     * @return array{root:string, base:string, dir:?string}
-     */
     /** @return array{root: ?string, base: ?string, dir: ?string} */
     private static function rootPath(string $name, mixed $value): array
     {
@@ -170,7 +167,7 @@ final class TargetFactory
 
         if ( ! is_array($value))
         {
-            throw new RuntimeException("config: target '{$name}' requires a 'root' object");
+            throw new ConfigException("config: target '{$name}' requires a 'root' object");
         }
 
         $base = self::requireString($value, 'base');
@@ -184,7 +181,7 @@ final class TargetFactory
 
         if ( ! is_string($directory) || trim($directory) === '')
         {
-            throw new RuntimeException("config: 'root.dir' must be a non-empty string");
+            throw new ConfigException("config: 'root.dir' must be a non-empty string");
         }
 
         $directory = trim($directory);
@@ -196,7 +193,7 @@ final class TargetFactory
             || str_contains($directory, '\\')
             || str_contains($directory, '~')
         ) {
-            throw new RuntimeException("config: target '{$name}' has an invalid 'root.dir'");
+            throw new ConfigException("config: target '{$name}' has an invalid 'root.dir'");
         }
 
         return ['root' => $path .'/'. $directory, 'base' => $path, 'dir' => $directory];

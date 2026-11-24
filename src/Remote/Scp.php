@@ -21,7 +21,7 @@ final class Scp
             $this->argv($local, $this->target->sshTarget() .':'. $remote),
             null,
             null,
-            $this->target->sshAuth->env(),
+            SshOptions::env($this->target),
         );
     }
 
@@ -32,7 +32,7 @@ final class Scp
             $this->argv($this->target->sshTarget() .':'. $remote, $local),
             null,
             null,
-            $this->target->sshAuth->env(),
+            SshOptions::env($this->target),
         );
     }
 
@@ -42,15 +42,6 @@ final class Scp
      */
     private function argv(string $source, string $destination): array
     {
-        $target = $this->target;
-
-        return [
-            ...$target->sshAuth->prefix('scp'),
-            '-P', (string) $target->sshPort,
-            ...$target->sshAuth->options(),
-            '-o', 'ConnectTimeout=15',
-            $source,
-            $destination,
-        ];
+        return SshOptions::scp($this->target, $source, $destination);
     }
 }

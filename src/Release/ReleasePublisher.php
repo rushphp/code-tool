@@ -2,14 +2,14 @@
 
 namespace Rush\Tool\Code\Release;
 
-use JsonException;
-use RuntimeException;
+use Rush\Tool\Code\Exception\ReleaseException;
 use Rush\Contract\OutputInterface;
 use Rush\Tool\Code\Layout;
 use Rush\Tool\Code\Remote\RemoteFiles;
 use Rush\Tool\Code\Remote\Scp;
 use Rush\Tool\Code\Shell;
 use Rush\Tool\Code\Ssh;
+use Rush\Tool\Code\Support\Json;
 use Rush\Support\FileSystem;
 use Rush\Tool\Code\Target;
 
@@ -55,7 +55,7 @@ final class ReleasePublisher
                 }
 
                 if ( ! is_file($source)) {
-                    throw new RuntimeException("missing publish source: {$entry['from']}");
+                    throw new ReleaseException("missing publish source: {$entry['from']}");
                 }
 
                 FileSystem::copyFile($source, $target);
@@ -74,7 +74,7 @@ final class ReleasePublisher
             ]);
 
             if ( ! is_file($archive)) {
-                throw new RuntimeException('release archive was not created');
+                throw new ReleaseException('release archive was not created');
             }
 
             return $archive;
@@ -108,22 +108,13 @@ final class ReleasePublisher
             if ( ! $verification['available']) {
                 $this->out('warning: remote artifact hash tool not found; integrity not verified');
             } elseif ( ! $verification['ok']) {
-                throw new RuntimeException("artifact hash mismatch: {$manifest->releaseId}");
+                throw new ReleaseException("artifact hash mismatch: {$manifest->releaseId}");
             } else {
                 $verified = true;
             }
         }
 
-        try {
-            $json = json_encode(
-                $manifest->toArray(),
-                JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
-            ) ."\n";
-        } catch (JsonException $exception) {
-            throw new RuntimeException('could not encode release manifest: '. $exception->getMessage(), 0, $exception);
-        }
-
-        $this->remote->writeFile($directory .'/manifest.json', $json);
+        $this->remote->writeFile($directory .'/manifest.json', Json::encode($manifest->toArray(), 'release manifest'));
 
         return $verified;
     }

@@ -2,6 +2,7 @@
 
 namespace Rush\Tool\Code\Command;
 
+use Rush\Tool\Code\Exception\LayoutException;
 use Rush\Contract\ExitCode;
 use Rush\Contract\InputInterface;
 use Rush\Contract\Option;
@@ -40,19 +41,19 @@ final class LayoutInitCommand extends CommandAbstract
         $target = rtrim($this->projectRoot, '/') .'/code.layout.json';
 
         if (is_file($target) && ! $input->bool('force')) {
-            throw new \RuntimeException('code.layout.json already exists; use --force to overwrite');
+            throw new LayoutException('code.layout.json already exists; use --force to overwrite');
         }
 
         $raw = file_get_contents($resolved['path']);
 
         if ($raw === false) {
-            throw new \RuntimeException("could not read preset: {$resolved['path']}");
+            throw new LayoutException("could not read preset: {$resolved['path']}");
         }
 
         $data = json_decode($raw, true);
 
         if ( ! is_array($data)) {
-            throw new \RuntimeException("preset '{$preset}' is not a valid JSON object");
+            throw new LayoutException("preset '{$preset}' is not a valid JSON object");
         }
 
         Layout::fromArray($data, $this->projectRoot);

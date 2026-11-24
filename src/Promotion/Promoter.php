@@ -2,29 +2,52 @@
 
 namespace Rush\Tool\Code\Promotion;
 
-use RuntimeException;
-use Throwable;
 use Rush\Contract\OutputInterface;
+use Rush\Support\Operator;
 use Rush\Tool\Code\Backup\SnapshotStore;
-use Rush\Tool\Code\Deploy\DeployPaths;
 use Rush\Tool\Code\Deploy\PathRules;
+use Rush\Tool\Code\Deploy\Pipeline\DeployContext;
+use Rush\Tool\Code\Deploy\Pipeline\Deployment;
+use Rush\Tool\Code\Deploy\Pipeline\RollbackGuard;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\ApplyOverridesStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\AssertEnvStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\CheckStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\EnsureRemoteDirsStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\LayoutCompatibilityStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\MaintenanceStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\NestedWebrootGuardStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\PersistReleaseStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\PromoteEventStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\PruneStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\PublishArtifactStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\ReadCurrentForRetireStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\ReadCurrentStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\RemoveSourceDeploymentStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\RetireEventStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\SnapshotCurrentStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\SnapshotStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\UpdateCurrentPromotedStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\UploadExtractStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\VerifyRedirectStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\VerifyStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\WriteRetiredCurrentStep;
+use Rush\Tool\Code\Deploy\Pipeline\Steps\WriteStubStep;
 use Rush\Tool\Code\Event\EventWriter;
 use Rush\Tool\Code\Layout;
 use Rush\Tool\Code\Maintenance;
-use Rush\Support\Operator;
 use Rush\Tool\Code\Preflight\Preflight;
+use Rush\Tool\Code\Release\ReleaseExport;
 use Rush\Tool\Code\Release\ReleaseExporter;
 use Rush\Tool\Code\Release\ReleaseManifest;
 use Rush\Tool\Code\Release\ReleasePublisher;
-use Rush\Tool\Code\Release\ReleaseStore;
 use Rush\Tool\Code\Remote\RemoteFiles;
 use Rush\Tool\Code\Remote\Scp;
-use Rush\Tool\Code\Retirement\RedirectStub;
 use Rush\Tool\Code\Shell;
 use Rush\Tool\Code\Ssh;
 use Rush\Tool\Code\Target;
 use Rush\Tool\Code\Transport\Transfer;
 use Rush\Tool\Code\Verify\Verifier;
+use Throwable;
 
 
 final class Promoter
@@ -81,71 +104,43 @@ final class Promoter
     }
 
 
+    public function exportRelease(): ReleaseExport
+    {
+        return (new ReleaseExporter($this->target, $this->ssh, $this->scp, $this->remote))->exportRelease();
+    }
+
+
     public function receive(string $archive, ReleaseManifest $manifest, string $promotedFrom): void
     {
-        if ($manifest->layout !== null && $manifest->layout !== $this->layout->fingerprint()) {
-            throw new RuntimeException('release layout does not match destination layout');
-        }
-
-        $started = false;
-        $snapshot = null;
-        $hasRsync = false;
-        $remoteArchive = DeployPaths::incoming($this->target, 'release');
+        $context = $this->context();
+        $context->manifest = $manifest;
+        $context->releaseArchive = $archive;
+        $context->promotedFrom = $promotedFrom;
 
         try {
-            $hasRsync = $this->preflight->check();
-            $this->preflight->assertEnvExists();
+            (new Deployment([
+                new LayoutCompatibilityStep(),
+                new CheckStep(),
+                new AssertEnvStep(),
+                new ReadCurrentStep(),
+                new MaintenanceStep(true),
+                new EnsureRemoteDirsStep(),
+                new SnapshotStep(),
+                new UploadExtractStep(),
+                new ApplyOverridesStep(),
+                new MaintenanceStep(false),
+                new VerifyStep(),
+                new PersistReleaseStep(),
+                new PublishArtifactStep(),
+                new UpdateCurrentPromotedStep(),
+                new PromoteEventStep(),
+                new PruneStep(),
+            ]))->run($context);
 
-            $previousReleaseId = $this->remote->currentReleaseId();
-            $store = new ReleaseStore($this->projectRoot);
-
-            $this->maintenance->enable($this->target);
-            $started = true;
-
-            $this->transfer->ensureRemoteDirs();
-            $snapshot = $this->snapshots->create($manifest->toArray(), $previousReleaseId);
-            $this->out('backup: '. $snapshot);
-
-            $this->scp->upload($archive, $remoteArchive);
-            $this->extractRelease($remoteArchive);
-            $this->transfer->applyOverrides($hasRsync);
-
-            $this->maintenance->disable($this->target);
-            $this->verifier->verify();
-
-            $store->persist($manifest);
-            $artifactVerified = $this->publisher->upload($manifest, $archive);
-            $this->remote->writeCurrent($manifest, $snapshot, 'current', $previousReleaseId, $promotedFrom);
-            $this->events->write('promote', $manifest->releaseId, $promotedFrom, $this->target->name, $snapshot, [
-                'artifactVerified' => $artifactVerified,
-            ]);
-
-            $this->snapshots->pruneBackups();
-            $this->snapshots->pruneReleases($manifest->releaseId);
-            $this->events->prune($this->target->eventKeep);
             $this->out('release: '. $manifest->releaseId .' ('. $manifest->version .')');
             $this->out('promote complete');
-        }
-        catch (Throwable $error) {
-            if ($started) {
-                $this->out('error: '. $error->getMessage());
-
-                if ($snapshot === null) {
-                    $this->out('no backup: maintenance remains active');
-                } else {
-                    try {
-                        $this->maintenance->enable($this->target);
-                        $this->snapshots->restore($snapshot);
-                        $this->transfer->applyOverrides($hasRsync);
-                        $this->maintenance->disable($this->target);
-                        $this->verifier->verify();
-                        $this->out('rollback complete');
-                    } catch (Throwable $rollback) {
-                        $this->out('ROLLBACK FAILED, maintenance remains active: '. $rollback->getMessage());
-                    }
-                }
-            }
-
+        } catch (Throwable $error) {
+            RollbackGuard::recoverDeployment($context, $error);
             throw $error;
         }
     }
@@ -153,165 +148,52 @@ final class Promoter
 
     public function retire(string $redirectUrl, string $promotedTo): void
     {
-        if ($this->target->nestedWebroots !== []) {
-            throw new RuntimeException('cannot retire a target with nested webroots');
-        }
-
-        $current = $this->remote->readCurrent();
-
-        if ($current === null) {
-            throw new RuntimeException('source has no current release');
-        }
-
-        $status = $current['status'] ?? null;
-
-        if ($status !== null && $status !== 'current') {
-            throw new RuntimeException('source is not in current state');
-        }
-
-        $stub = (new RedirectStub($this->projectRoot))->render($redirectUrl);
-        $started = false;
-        $snapshot = null;
+        $context = $this->context();
+        $context->redirectUrl = $redirectUrl;
+        $context->promotedTo = $promotedTo;
 
         try {
-            $this->maintenance->enable($this->target);
-            $started = true;
-            $snapshot = $this->snapshots->create($current, null);
-
-            $this->remote->writeFile($this->target->webroot .'/index.php', $stub['index']);
-            $this->remote->writeFile($this->target->webroot .'/.htaccess', $stub['htaccess']);
-
-            $this->maintenance->disable($this->target);
-            $this->verifier->assertRedirect($this->target->url, $redirectUrl);
-
-            $this->removeSourceDeployment();
-
-            $this->remote->writeJson($this->target->stateDir() .'/current.json', [
-                'releaseId' => $current['releaseId'] ?? null,
-                'contentHash' => $current['contentHash'] ?? null,
-                'version' => $current['version'] ?? null,
-                'status' => 'redirected',
-                'redirectTo' => $redirectUrl,
-                'promotedTo' => $promotedTo,
-                'promotedAt' => gmdate('c'),
-                'backup' => $snapshot,
-                'previousReleaseId' => $current['previousReleaseId'] ?? null,
-                'retirement' => [
-                    'files' => ['index.php', '.htaccess'],
-                    'redirectTo' => $redirectUrl,
-                ],
-            ]);
-
-
-            $retireRelease = $current['releaseId'] ?? 'unknown';
-            $this->events->write('retire', is_string($retireRelease) ? $retireRelease : 'unknown', $this->target->name, $promotedTo, $snapshot);
+            (new Deployment([
+                new NestedWebrootGuardStep(),
+                new ReadCurrentForRetireStep(),
+                new MaintenanceStep(true),
+                new SnapshotCurrentStep(),
+                new WriteStubStep(),
+                new MaintenanceStep(false),
+                new VerifyRedirectStep(),
+                new RemoveSourceDeploymentStep(),
+                new WriteRetiredCurrentStep(),
+                new RetireEventStep(),
+            ]))->run($context);
 
             $this->out('source retired: redirecting to '. $redirectUrl);
-        }
-        catch (Throwable $error) {
-            if ($started && $snapshot !== null) {
-                try {
-                    $this->maintenance->enable($this->target);
-                    $this->snapshots->restore($snapshot);
-                    $this->transfer->applyOverrides(false);
-                } catch (Throwable $rollback) {
-                    $this->out('RETIRE ROLLBACK FAILED, maintenance remains active: '. $rollback->getMessage());
-                }
-            }
-
+        } catch (Throwable $error) {
+            RollbackGuard::recoverRetirement($context, $error);
             throw $error;
         }
     }
 
 
-    private function extractRelease(string $remoteArchive): void
+    private function context(): DeployContext
     {
-        $target = $this->target;
-        $commands = [];
-
-        if ($target->root !== null) {
-            $commands[] = $this->rootDeleteCommand();
-            $commands[] = 'rm -rf '. Ssh::quote($target->root .'/vendor');
-
-            if ($this->layout->publishFor('root') !== []) {
-                $commands[] = 'tar -xzf '. Ssh::quote($remoteArchive)
-                    .' -C '. Ssh::quote($target->root)
-                    .' --strip-components=1 root';
-            }
-        }
-
-        $commands[] = $this->webrootDeleteCommand();
-
-        if ($this->layout->publishFor('webroot') !== []) {
-            $commands[] = 'tar -xzf '. Ssh::quote($remoteArchive)
-                .' -C '. Ssh::quote($target->webroot)
-                .' --strip-components=1 webroot';
-        }
-
-        $commands[] = 'rm -f '. Ssh::quote($remoteArchive);
-
-        $this->ssh->must($target, implode(' && ', $commands));
-    }
-
-
-    private function removeSourceDeployment(): void
-    {
-        $target = $this->target;
-        $commands = [];
-
-        foreach ($this->layout->publishFor('root') as $entry) {
-            $destination = $this->layout->resolve($entry['to'], $target);
-            $source = rtrim($this->projectRoot, '/') .'/'. $entry['from'];
-
-            if (is_dir($source)) {
-                $commands[] = $this->rules->deleteContents(
-                    $destination,
-                    $this->rules->preserveInside($destination),
-                );
-                continue;
-            }
-
-            $commands[] = 'rm -f '. Ssh::quote($destination);
-        }
-
-        if ($target->root !== null) {
-            $commands[] = 'rm -rf '. Ssh::quote($target->root .'/vendor');
-        }
-
-        $commands[] = $this->webrootDeleteCommand(true);
-
-        $this->ssh->must($target, implode(' && ', $commands));
-    }
-
-
-    private function rootDeleteCommand(): string
-    {
-        $commands = [];
-
-        foreach ($this->layout->publishFor('root') as $entry) {
-            $destination = $this->layout->resolve($entry['to'], $this->target);
-            $source = rtrim($this->projectRoot, '/') .'/'. $entry['from'];
-
-            if (is_dir($source)) {
-                $commands[] = $this->rules->deleteContents(
-                    $destination,
-                    $this->rules->preserveInside($destination),
-                );
-                continue;
-            }
-
-            $commands[] = 'rm -f '. Ssh::quote($destination);
-        }
-
-        return $commands === [] ? 'true' : implode(' && ', $commands);
-    }
-
-
-    private function webrootDeleteCommand(bool $preserveStub = false): string
-    {
-        return $this->rules->deleteContents(
-            $this->target->webroot,
-            $this->rules->webrootPreserve($preserveStub),
+        return new DeployContext(
+            $this->projectRoot,
+            $this->target,
+            $this->shell,
+            $this->output,
+            $this->operator,
+            $this->layout,
+            $this->ssh,
+            $this->scp,
+            $this->remote,
+            $this->snapshots,
+            $this->transfer,
+            $this->preflight,
+            $this->publisher,
+            $this->verifier,
+            $this->events,
+            $this->maintenance,
+            $this->rules,
         );
     }
 

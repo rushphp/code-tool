@@ -2,6 +2,7 @@
 
 namespace Rush\Tool\Code\Event;
 
+use Rush\Tool\Code\Exception\DeployException;
 
 /**
  * @phpstan-type OperatorInfo array{name: string, email: ?string}
@@ -76,7 +77,7 @@ final class DeployEvent
         $value = $data[$key] ?? null;
 
         if ( ! is_string($value) || $value === '') {
-            throw new \RuntimeException("invalid deploy event field: {$key}");
+            throw new DeployException("invalid deploy event field: {$key}");
         }
 
         return $value;

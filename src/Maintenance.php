@@ -2,10 +2,10 @@
 
 namespace Rush\Tool\Code;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\DeployException;
 
 
-class Maintenance
+final class Maintenance
 {
     public function __construct(
         private readonly Ssh $ssh,
@@ -73,7 +73,7 @@ class Maintenance
         $path = $this->layout->maintenancePath($target);
 
         if ($path === null) {
-            throw new RuntimeException('layout: maintenance marker path is missing');
+            throw new DeployException('layout: maintenance marker path is missing');
         }
 
         return $path;

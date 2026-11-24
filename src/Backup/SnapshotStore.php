@@ -2,12 +2,13 @@
 
 namespace Rush\Tool\Code\Backup;
 
+use Rush\Tool\Code\Exception\DeployException;
 use JsonException;
-use RuntimeException;
 use Rush\Tool\Code\Deploy\DeployPaths;
 use Rush\Tool\Code\Deploy\PathRules;
 use Rush\Tool\Code\Layout;
 use Rush\Tool\Code\Ssh;
+use Rush\Tool\Code\Support\Json;
 use Rush\Tool\Code\Target;
 
 
@@ -65,18 +66,15 @@ final class SnapshotStore
 
         $this->ssh->must($target, implode(' && ', $commands));
 
-        $manifest = json_encode(
-            array_merge($release, [
-                'target' => $target->name,
-                'root' => $target->root,
-                'webroot' => $target->webroot,
-                'nestedWebroots' => $target->nestedWebroots,
-                'layout' => $this->layout->fingerprint(),
-                'createdAt' => gmdate('c'),
-                'previousReleaseId' => $previousReleaseId,
-            ]),
-            JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
-        ) ."\n";
+        $manifest = Json::encode(array_merge($release, [
+            'target' => $target->name,
+            'root' => $target->root,
+            'webroot' => $target->webroot,
+            'nestedWebroots' => $target->nestedWebroots,
+            'layout' => $this->layout->fingerprint(),
+            'createdAt' => gmdate('c'),
+            'previousReleaseId' => $previousReleaseId,
+        ]), 'snapshot manifest');
 
         $this->ssh->must(
             $target,
@@ -206,7 +204,7 @@ final class SnapshotStore
 
         if (trim($result->stdout) === '__MISSING__')
         {
-            throw new RuntimeException('snapshot manifest not found');
+            throw new DeployException('snapshot manifest not found');
         }
 
         try
@@ -215,24 +213,24 @@ final class SnapshotStore
         }
         catch (JsonException $error)
         {
-            throw new RuntimeException('invalid snapshot manifest: '. $error->getMessage(), 0, $error);
+            throw new DeployException('invalid snapshot manifest: '. $error->getMessage(), 0, $error);
         }
 
         if ( ! is_array($manifest))
         {
-            throw new RuntimeException('invalid snapshot manifest: expected object');
+            throw new DeployException('invalid snapshot manifest: expected object');
         }
 
         if (($manifest['root'] ?? null) !== $this->target->root
             || ($manifest['webroot'] ?? null) !== $this->target->webroot)
         {
-            throw new RuntimeException('snapshot layout does not match the current target');
+            throw new DeployException('snapshot layout does not match the current target');
         }
 
         if (is_string($manifest['layout'] ?? null)
             && $manifest['layout'] !== $this->layout->fingerprint())
         {
-            throw new RuntimeException('snapshot layout does not match the current code.layout.json');
+            throw new DeployException('snapshot layout does not match the current code.layout.json');
         }
 
         /** @var array<string, mixed> $manifest */

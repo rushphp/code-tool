@@ -2,7 +2,8 @@
 
 namespace Rush\Tool\Code\Release;
 
-use RuntimeException;
+use Rush\Support\FileSystem;
+use Rush\Tool\Code\Deploy\DeployPaths;
 use Throwable;
 use Rush\Tool\Code\Config;
 use Rush\Tool\Code\Event\EventLog;
@@ -47,7 +48,7 @@ final class ReleaseSync
             $events = (new EventLog($this->projectRoot, $target, $this->shell))->remoteNames();
 
             foreach ($manifests as $releaseId) {
-                $local = rtrim($this->projectRoot, '/') .'/.rush/code/releases/'. $releaseId .'/manifest.json';
+                $local = DeployPaths::localReleaseManifest($this->projectRoot, $releaseId);
 
                 if (is_file($local)) {
                     continue;
@@ -113,8 +114,6 @@ final class ReleaseSync
 
     private function ensureDirectory(string $directory): void
     {
-        if ( ! is_dir($directory) && ! mkdir($directory, 0700, true) && ! is_dir($directory)) {
-            throw new RuntimeException("could not create directory: {$directory}");
-        }
+        FileSystem::ensureDirectory($directory);
     }
 }

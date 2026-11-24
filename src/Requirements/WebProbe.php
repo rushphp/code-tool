@@ -2,7 +2,7 @@
 
 namespace Rush\Tool\Code\Requirements;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\DeployException;
 use Rush\Tool\Code\Shell;
 use Rush\Tool\Code\Ssh;
 use Rush\Tool\Code\Target;
@@ -38,13 +38,13 @@ PHP;
             $response = $shell->run(['curl', '-sS', '--max-time', '20', $url]);
 
             if ( ! $response->ok()) {
-                throw new RuntimeException('requirements: web probe request failed');
+                throw new DeployException('requirements: web probe request failed');
             }
 
             $data = json_decode($response->stdout, true);
 
             if ( ! is_array($data) || ! is_string($data['php'] ?? null) || ! is_array($data['extensions'] ?? null)) {
-                throw new RuntimeException('requirements: invalid web probe response');
+                throw new DeployException('requirements: invalid web probe response');
             }
 
             $extensions = [];

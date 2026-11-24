@@ -2,11 +2,12 @@
 
 namespace Rush\Tool\Code\Command;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\ConfigException;
 use Rush\Contract\CommandInterface;
 use Rush\Contract\InputInterface;
 use Rush\Contract\OutputInterface;
 use Rush\Tool\Code\Config;
+use Rush\Tool\Code\Deploy\DeployPaths;
 use Rush\Tool\Code\Deployer;
 use Rush\Tool\Code\Layout;
 use Rush\Support\Operator;
@@ -65,7 +66,7 @@ abstract class CommandAbstract implements CommandInterface
 
     protected function config(): Config
     {
-        return $this->config ??= Config::load($this->projectRoot .'/.rush/code/config.json');
+        return $this->config ??= Config::load(DeployPaths::localConfig($this->projectRoot));
     }
 
 
@@ -86,7 +87,7 @@ abstract class CommandAbstract implements CommandInterface
         $name = $input->string('target');
 
         if ($name === null || $name === '') {
-            throw new RuntimeException('--target is required');
+            throw new ConfigException('--target is required');
         }
 
         return $this->config()->target($name);

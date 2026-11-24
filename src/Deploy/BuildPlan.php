@@ -2,6 +2,7 @@
 
 namespace Rush\Tool\Code\Deploy;
 
+use Rush\Tool\Code\Exception\LayoutException;
 use Rush\Tool\Code\Layout;
 
 
@@ -67,7 +68,7 @@ final class BuildPlan
         }
 
         if ($remotePhp === null || $remotePhp === '') {
-            throw new \RuntimeException('build: remote PHP version is required for platform=remote');
+            throw new LayoutException('build: remote PHP version is required for platform=remote');
         }
 
         return $remotePhp;

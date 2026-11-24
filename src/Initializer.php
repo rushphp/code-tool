@@ -2,11 +2,12 @@
 
 namespace Rush\Tool\Code;
 
-use RuntimeException;
 use Rush\Support\FileSystem;
+use Rush\Tool\Code\Deploy\DeployPaths;
+use Rush\Tool\Code\Exception\SecurityException;
 
 
-class Initializer
+final class Initializer
 {
     public function __construct(
         private readonly string $projectRoot,
@@ -19,26 +20,30 @@ class Initializer
     /** @return list<string> */
     public function run(): array
     {
-        $layout = $this->layout ?? Layout::fromProject($this->projectRoot);
-        $base = rtrim($this->projectRoot, '/') .'/.rush/code';
-        $config = $base .'/config.json';
+        $layout = $this->resolveLayout();
+        $base = DeployPaths::local($this->projectRoot);
+        $config = DeployPaths::localConfig($this->projectRoot);
         $example = $this->examplePath ?? dirname(__DIR__) .'/code.example.json';
 
         if (is_link($base)) {
-            throw new RuntimeException("refusing to use symlink: {$base}");
+            throw new SecurityException("refusing to use symlink: {$base}");
         }
 
         $lines = [];
         $directories = [
             $base,
-            $base .'/auth',
-            $base .'/stub',
-            $base .'/releases',
-            $base .'/events',
+            DeployPaths::localAuth($this->projectRoot),
+            DeployPaths::localStub($this->projectRoot),
+            DeployPaths::localReleases($this->projectRoot),
+            DeployPaths::localEvents($this->projectRoot),
         ];
 
         foreach (Config::TARGETS as $environment) {
             $directories[] = $base .'/override/'. $environment;
+
+            if ($layout === null) {
+                continue;
+            }
 
             foreach ($layout->publish() as $entry) {
                 $directories[] = $this->overrideDirectory($base, $environment, $entry['from']);
@@ -61,6 +66,18 @@ class Initializer
     }
 
 
+    private function resolveLayout(): ?Layout
+    {
+        if ($this->layout !== null) {
+            return $this->layout;
+        }
+
+        $file = rtrim($this->projectRoot, '/') .'/code.layout.json';
+
+        return is_file($file) ? Layout::fromProject($this->projectRoot) : null;
+    }
+
+
     private function overrideDirectory(string $base, string $environment, string $from): string
     {
         $path = $base .'/override/'. $environment .'/'. $from;
@@ -77,7 +94,7 @@ class Initializer
     private function directory(string $path): string
     {
         if (is_link($path)) {
-            throw new RuntimeException("refusing to use symlink: {$path}");
+            throw new SecurityException("refusing to use symlink: {$path}");
         }
 
         if (is_dir($path)) {
@@ -93,7 +110,7 @@ class Initializer
     private function file(string $path, string $template): string
     {
         if (is_link($path)) {
-            throw new RuntimeException("refusing to use symlink: {$path}");
+            throw new SecurityException("refusing to use symlink: {$path}");
         }
 
         if (is_file($path)) {
@@ -110,7 +127,7 @@ class Initializer
     private function configuration(string $config, string $example): string
     {
         if (is_link($config)) {
-            throw new RuntimeException("refusing to use symlink: {$config}");
+            throw new SecurityException("refusing to use symlink: {$config}");
         }
 
         if (is_file($config)) {

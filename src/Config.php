@@ -2,13 +2,13 @@
 
 namespace Rush\Tool\Code;
 
+use Rush\Tool\Code\Exception\ConfigException;
 use JsonException;
-use RuntimeException;
 use Rush\Tool\Code\Config\TargetFactory;
 use Rush\Tool\Code\Config\TargetGraph;
 
 
-class Config
+final class Config
 {
     /**
      * Ordered deploy targets. Promotion follows this exact order.
@@ -30,14 +30,14 @@ class Config
     {
         if ( ! is_file($file) || ! is_readable($file))
         {
-            throw new RuntimeException("config not found or unreadable: {$file}");
+            throw new ConfigException("config not found or unreadable: {$file}");
         }
 
         $raw = file_get_contents($file);
 
         if ($raw === false)
         {
-            throw new RuntimeException("config could not be read: {$file}");
+            throw new ConfigException("config could not be read: {$file}");
         }
 
         try
@@ -46,33 +46,33 @@ class Config
         }
         catch (JsonException $error)
         {
-            throw new RuntimeException('invalid config: '. $error->getMessage(), 0, $error);
+            throw new ConfigException('invalid config: '. $error->getMessage(), 0, $error);
         }
 
         if ( ! is_array($data))
         {
-            throw new RuntimeException('config must be a JSON object');
+            throw new ConfigException('config must be a JSON object');
         }
 
         $targets = $data['targets'] ?? null;
 
         if ( ! is_array($targets) || $targets === [])
         {
-            throw new RuntimeException("config: 'targets' must be a non-empty object");
+            throw new ConfigException("config: 'targets' must be a non-empty object");
         }
 
         $defaults = $data['global'] ?? [];
 
         if ( ! is_array($defaults))
         {
-            throw new RuntimeException("config: 'global' must be an object");
+            throw new ConfigException("config: 'global' must be an object");
         }
 
         $root = realpath(dirname($file));
 
         if ($root === false)
         {
-            throw new RuntimeException("config directory could not be resolved: {$file}");
+            throw new ConfigException("config directory could not be resolved: {$file}");
         }
 
         $config = new self();
@@ -81,14 +81,14 @@ class Config
         {
             if ( ! is_string($name) || ! in_array($name, self::TARGETS, true))
             {
-                throw new RuntimeException(
+                throw new ConfigException(
                     "config: invalid target '{$name}'. use: ". implode(', ', self::TARGETS),
                 );
             }
 
             if ( ! is_array($target))
             {
-                throw new RuntimeException("config: target '{$name}' must be an object");
+                throw new ConfigException("config: target '{$name}' must be an object");
             }
 
             $merged = self::merge($defaults, $target);
@@ -106,7 +106,7 @@ class Config
     {
         if ( ! isset($this->targets[$name]))
         {
-            throw new RuntimeException(
+            throw new ConfigException(
                 "unknown target '{$name}'. available: ". implode(', ', $this->names()),
             );
         }

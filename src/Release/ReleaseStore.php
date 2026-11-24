@@ -2,8 +2,10 @@
 
 namespace Rush\Tool\Code\Release;
 
-use JsonException;
-use RuntimeException;
+use Rush\Support\FileSystem;
+use Rush\Tool\Code\Deploy\DeployPaths;
+use Rush\Tool\Code\Exception\ReleaseException;
+use Rush\Tool\Code\Support\Json;
 
 
 final class ReleaseStore
@@ -16,66 +18,55 @@ final class ReleaseStore
 
     public function manifestPath(string $releaseId): string
     {
-        return $this->directory($releaseId) .'/manifest.json';
+        return DeployPaths::localReleaseManifest($this->projectRoot, $releaseId);
     }
+
 
     public function exists(string $releaseId): bool
     {
         return is_file($this->manifestPath($releaseId));
     }
 
+
     public function persist(ReleaseManifest $manifest): void
     {
-        $directory = $this->directory($manifest->releaseId);
-
-        if ( ! is_dir($directory) && ! mkdir($directory, 0700, true) && ! is_dir($directory)) {
-            throw new RuntimeException("could not create release directory: {$directory}");
-        }
-
-        try {
-            $json = json_encode(
-                $manifest->toArray(),
-                JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
-            );
-        } catch (JsonException $exception) {
-            throw new RuntimeException('could not encode release manifest: '. $exception->getMessage(), 0, $exception);
-        }
-
-        if (file_put_contents($this->manifestPath($manifest->releaseId), $json ."\n") === false) {
-            throw new RuntimeException("could not write release manifest: {$manifest->releaseId}");
-        }
+        FileSystem::write(
+            $this->manifestPath($manifest->releaseId),
+            Json::encode($manifest->toArray(), 'release manifest'),
+            0600,
+        );
     }
+
 
     public function manifest(string $releaseId): ReleaseManifest
     {
         $path = $this->manifestPath($releaseId);
 
         if ( ! is_file($path)) {
-            throw new RuntimeException("release manifest not found: {$releaseId}");
+            throw new ReleaseException("release manifest not found: {$releaseId}");
         }
 
-        $raw = file_get_contents($path);
-
-        if ($raw === false) {
-            throw new RuntimeException("could not read release manifest: {$releaseId}");
-        }
-
-        try {
-            $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-        } catch (JsonException $exception) {
-            throw new RuntimeException("invalid release manifest: {$releaseId}", 0, $exception);
-        }
-
-        if ( ! is_array($data)) {
-            throw new RuntimeException("invalid release manifest: {$releaseId}");
-        }
-
-        /** @var array<string, mixed> $data */
-        return ReleaseManifest::fromArray($data);
+        return ReleaseManifest::fromArray(Json::read($path, "invalid release manifest: {$releaseId}"));
     }
 
-    private function directory(string $releaseId): string
+
+    /** @return list<string> */
+    public function releaseIds(): array
     {
-        return rtrim($this->projectRoot, '/') .'/.rush/code/releases/'. $releaseId;
+        $directory = DeployPaths::localReleases($this->projectRoot);
+
+        if ( ! is_dir($directory)) {
+            return [];
+        }
+
+        $ids = [];
+
+        foreach (glob($directory .'/*/manifest.json') ?: [] as $file) {
+            $ids[] = basename(dirname($file));
+        }
+
+        sort($ids, SORT_STRING);
+
+        return $ids;
     }
 }

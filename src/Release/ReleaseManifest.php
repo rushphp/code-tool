@@ -2,6 +2,7 @@
 
 namespace Rush\Tool\Code\Release;
 
+use Rush\Tool\Code\Exception\ReleaseException;
 
 /**
  * @phpstan-type GitInfo array{commit: string, branch: string, dirty: bool}
@@ -84,7 +85,7 @@ final class ReleaseManifest
         $value = $data[$key] ?? null;
 
         if ( ! is_string($value) || $value === '') {
-            throw new \RuntimeException("invalid release manifest field: {$key}");
+            throw new ReleaseException("invalid release manifest field: {$key}");
         }
 
         return $value;

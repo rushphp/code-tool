@@ -2,10 +2,11 @@
 
 namespace Rush\Tool\Code;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\TransportException;
+use Rush\Tool\Code\Remote\SshOptions;
 
 
-class Ssh
+final class Ssh
 {
     public function __construct(
         private readonly Shell $shell,
@@ -13,22 +14,10 @@ class Ssh
     }
 
 
-    /**
-     * @return list<string>
-     */
+    /** @return list<string> */
     public function argv(Target $target, string $remote): array
     {
-        $command = [
-            ...$target->sshAuth->prefix('ssh'),
-            '-p', (string) $target->sshPort,
-            ...$target->sshAuth->options(),
-            '-o', 'ConnectTimeout=15',
-        ];
-
-        $command[] = $target->sshTarget();
-        $command[] = $remote;
-
-        return $command;
+        return SshOptions::ssh($target, $remote);
     }
 
 
@@ -38,7 +27,7 @@ class Ssh
             $this->argv($target, $remote),
             $stdin,
             null,
-            $target->sshAuth->env(),
+            SshOptions::env($target),
         );
     }
 
@@ -47,11 +36,10 @@ class Ssh
     {
         $result = $this->run($target, $remote, $stdin);
 
-        if ( ! $result->ok())
-        {
+        if ( ! $result->ok()) {
             $detail = trim($result->stderr) !== '' ? trim($result->stderr) : trim($result->stdout);
 
-            throw new RuntimeException(
+            throw new TransportException(
                 "ssh {$target->sshTarget()} failed". ($detail !== '' ? ":\n". $detail : ''),
             );
         }

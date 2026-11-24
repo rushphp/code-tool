@@ -67,9 +67,39 @@ final class DeployPaths
     }
 
 
+    public static function localConfig(string $projectRoot): string
+    {
+        return self::local($projectRoot) .'/config.json';
+    }
+
+
+    public static function localAuth(string $projectRoot): string
+    {
+        return self::local($projectRoot) .'/auth';
+    }
+
+
+    public static function localStub(string $projectRoot): string
+    {
+        return self::local($projectRoot) .'/stub';
+    }
+
+
+    public static function localReleases(string $projectRoot): string
+    {
+        return self::local($projectRoot) .'/releases';
+    }
+
+
     public static function localRelease(string $projectRoot, string $releaseId): string
     {
-        return self::local($projectRoot) .'/releases/'. $releaseId;
+        return self::localReleases($projectRoot) .'/'. $releaseId;
+    }
+
+
+    public static function localReleaseManifest(string $projectRoot, string $releaseId): string
+    {
+        return self::localRelease($projectRoot, $releaseId) .'/manifest.json';
     }
 
 

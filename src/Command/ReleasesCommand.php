@@ -2,13 +2,15 @@
 
 namespace Rush\Tool\Code\Command;
 
-use RuntimeException;
+use Rush\Tool\Code\Exception\ConfigException;
 use Rush\Contract\ExitCode;
 use Rush\Contract\InputInterface;
 use Rush\Contract\Option;
 use Rush\Contract\OutputInterface;
+use Rush\Tool\Code\Deploy\DeployPaths;
 use Rush\Tool\Code\Event\DeployEvent;
 use Rush\Tool\Code\Release\ReleaseStore;
+use Rush\Tool\Code\Support\Json;
 
 
 final class ReleasesCommand extends CommandAbstract
@@ -41,7 +43,7 @@ final class ReleasesCommand extends CommandAbstract
     {
         if ($input->bool('sync')) {
             if ($input->has('target')) {
-                throw new RuntimeException('--sync cannot be used with --target');
+                throw new ConfigException('--sync cannot be used with --target');
             }
 
             return $this->syncReleases($output) ? ExitCode::Success->value : ExitCode::Failure->value;
@@ -69,27 +71,15 @@ final class ReleasesCommand extends CommandAbstract
         $store = new ReleaseStore($this->projectRoot);
         $manifests = [];
 
-        foreach (glob(rtrim($this->projectRoot, '/') .'/.rush/code/releases/*/manifest.json') ?: [] as $file) {
-            $releaseId = basename(dirname($file));
+        foreach ($store->releaseIds() as $releaseId) {
             $manifests[$releaseId] = $store->manifest($releaseId);
         }
 
         $events = [];
 
-        foreach (glob(rtrim($this->projectRoot, '/') .'/.rush/code/events/*.json') ?: [] as $file) {
-            $raw = file_get_contents($file);
+        foreach (glob(DeployPaths::localEvents($this->projectRoot) .'/*.json') ?: [] as $file) {
+            $data = Json::read($file, 'deploy event');
 
-            if ($raw === false) {
-                continue;
-            }
-
-            $data = json_decode($raw, true);
-
-            if ( ! is_array($data)) {
-                continue;
-            }
-
-            /** @var array<string, mixed> $data */
             $event = DeployEvent::fromArray($data);
 
             if ($target !== null && $target !== '' && $event->target !== $target) {

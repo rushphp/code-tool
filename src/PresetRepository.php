@@ -2,7 +2,9 @@
 
 namespace Rush\Tool\Code;
 
-use RuntimeException;
+use Rush\Tool\Code\Deploy\DeployPaths;
+use Rush\Tool\Code\Exception\ConfigException;
+use Rush\Tool\Code\Support\Resources;
 
 
 final class PresetRepository
@@ -19,7 +21,7 @@ final class PresetRepository
         $presets = [
             'custom' => [
                 'source' => 'built-in',
-                'path' => dirname(__DIR__) .'/resources/layouts/custom.json',
+                'path' => Resources::path('layouts/custom.json'),
             ],
         ];
 
@@ -51,7 +53,7 @@ final class PresetRepository
         $presets = $this->all();
 
         if ( ! isset($presets[$name])) {
-            throw new RuntimeException(
+            throw new ConfigException(
                 "unknown preset '{$name}'. available: ". implode(', ', array_keys($presets)),
             );
         }
@@ -64,7 +66,7 @@ final class PresetRepository
     private function local(): array
     {
         $presets = [];
-        $files = glob(rtrim($this->projectRoot, '/') .'/.rush/code/presets/*.json') ?: [];
+        $files = glob(DeployPaths::localPresets($this->projectRoot) .'/*.json') ?: [];
 
         foreach ($files as $file) {
             $name = basename($file, '.json');
@@ -143,7 +145,7 @@ final class PresetRepository
                 }
 
                 if (isset($presets[$name])) {
-                    throw new RuntimeException("layout: preset '{$name}' is provided by more than one package");
+                    throw new ConfigException("layout: preset '{$name}' is provided by more than one package");
                 }
 
                 $presets[$name] = [

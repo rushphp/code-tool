@@ -3,7 +3,7 @@
 namespace Rush\Tool\Code;
 
 
-class ShellResult
+final class ShellResult
 {
     public function __construct(
         public readonly int $code,

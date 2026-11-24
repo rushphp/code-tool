@@ -2,8 +2,8 @@
 
 namespace Rush\Tool\Code;
 
+use Rush\Tool\Code\Exception\LayoutException;
 use JsonException;
-use RuntimeException;
 
 
 final class Layout
@@ -37,7 +37,7 @@ final class Layout
         $file = rtrim($projectRoot, '/') .'/code.layout.json';
 
         if ( ! is_file($file) || ! is_readable($file)) {
-            throw new RuntimeException(
+            throw new LayoutException(
                 'layout not configured: create code.layout.json or run "rush code layout:init"',
             );
         }
@@ -45,17 +45,17 @@ final class Layout
         $raw = file_get_contents($file);
 
         if ($raw === false) {
-            throw new RuntimeException("layout could not be read: {$file}");
+            throw new LayoutException("layout could not be read: {$file}");
         }
 
         try {
             $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException $exception) {
-            throw new RuntimeException('layout: invalid JSON: '. $exception->getMessage(), 0, $exception);
+            throw new LayoutException('layout: invalid JSON: '. $exception->getMessage(), 0, $exception);
         }
 
         if ( ! is_array($data)) {
-            throw new RuntimeException('layout: code.layout.json must contain an object');
+            throw new LayoutException('layout: code.layout.json must contain an object');
         }
 
         return self::fromArray($data, $projectRoot);
@@ -68,13 +68,13 @@ final class Layout
         $php = $data['php'] ?? null;
 
         if ( ! is_array($php) || ! is_string($php['min'] ?? null)) {
-            throw new RuntimeException("layout: 'php.min' is required");
+            throw new LayoutException("layout: 'php.min' is required");
         }
 
         $phpMin = trim($php['min']);
 
         if (preg_match('/\A\d+\.\d+(\.\d+)?\z/', $phpMin) !== 1) {
-            throw new RuntimeException("layout: 'php.min' must be a version like 8.3");
+            throw new LayoutException("layout: 'php.min' must be a version like 8.3");
         }
 
         $publish = self::entries($data['publish'] ?? null, 'publish', required: true);
@@ -105,7 +105,7 @@ final class Layout
         $entrypoint = $data['entrypoint'] ?? null;
 
         if ( ! is_string($entrypoint) || trim($entrypoint) === '') {
-            throw new RuntimeException("layout: 'entrypoint' is required");
+            throw new LayoutException("layout: 'entrypoint' is required");
         }
 
         $entrypoint = trim($entrypoint);
@@ -115,11 +115,11 @@ final class Layout
 
         foreach ($preserve as $pattern) {
             if ( ! str_starts_with($pattern, '/')) {
-                throw new RuntimeException("layout: 'preserve' items must start with '/'");
+                throw new LayoutException("layout: 'preserve' items must start with '/'");
             }
 
             if (str_contains($pattern, '..')) {
-                throw new RuntimeException("layout: 'preserve' items must not contain '..'");
+                throw new LayoutException("layout: 'preserve' items must not contain '..'");
             }
         }
 
@@ -240,7 +240,7 @@ final class Layout
     public function assertTargetCompatible(Target $target): void
     {
         if (($this->usesRoot() || $this->build['composer']) && $target->root === null) {
-            throw new RuntimeException("layout: target '{$target->name}' requires a 'root'");
+            throw new LayoutException("layout: target '{$target->name}' requires a 'root'");
         }
     }
 
@@ -252,7 +252,7 @@ final class Layout
         $root = $base === 'root' ? $target->root : $target->webroot;
 
         if ($root === null) {
-            throw new RuntimeException("layout: target '{$target->name}' has no 'root' for {$path}");
+            throw new LayoutException("layout: target '{$target->name}' has no 'root' for {$path}");
         }
 
         return rtrim($root, '/') . ($relative === '' ? '' : '/'. $relative);
@@ -392,7 +392,7 @@ final class Layout
     {
         if ( ! is_array($value)) {
             if ($required) {
-                throw new RuntimeException("layout: '{$key}' is required");
+                throw new LayoutException("layout: '{$key}' is required");
             }
 
             return [];
@@ -402,18 +402,18 @@ final class Layout
 
         foreach ($value as $entry) {
             if ( ! is_array($entry)) {
-                throw new RuntimeException("layout: '{$key}' entries must be objects");
+                throw new LayoutException("layout: '{$key}' entries must be objects");
             }
 
             $from = $entry['from'] ?? null;
             $to = $entry['to'] ?? null;
 
             if ( ! is_string($from) || trim($from) === '') {
-                throw new RuntimeException("layout: '{$key}.from' must be a non-empty string");
+                throw new LayoutException("layout: '{$key}.from' must be a non-empty string");
             }
 
             if ( ! is_string($to) || trim($to) === '') {
-                throw new RuntimeException("layout: '{$key}.to' must be a non-empty string");
+                throw new LayoutException("layout: '{$key}.to' must be a non-empty string");
             }
 
             $from = trim($from);
@@ -426,7 +426,7 @@ final class Layout
         }
 
         if ($required && $entries === []) {
-            throw new RuntimeException("layout: '{$key}' must not be empty");
+            throw new LayoutException("layout: '{$key}' must not be empty");
         }
 
         return $entries;
@@ -437,14 +437,14 @@ final class Layout
     private static function stringList(mixed $value, string $key): array
     {
         if ( ! is_array($value)) {
-            throw new RuntimeException("layout: '{$key}' must be a list");
+            throw new LayoutException("layout: '{$key}' must be a list");
         }
 
         $list = [];
 
         foreach ($value as $item) {
             if ( ! is_string($item) || trim($item) === '') {
-                throw new RuntimeException("layout: '{$key}' items must be non-empty strings");
+                throw new LayoutException("layout: '{$key}' items must be non-empty strings");
             }
 
             $list[] = trim($item);
@@ -460,7 +460,7 @@ final class Layout
     private static function parseMaintenance(mixed $value): array
     {
         if ( ! is_array($value)) {
-            throw new RuntimeException("layout: 'maintenance' is required");
+            throw new LayoutException("layout: 'maintenance' is required");
         }
 
         $type = $value['type'] ?? null;
@@ -469,7 +469,7 @@ final class Layout
             $path = $value['path'] ?? null;
 
             if ( ! is_string($path) || trim($path) === '') {
-                throw new RuntimeException("layout: 'maintenance.path' is required for marker mode");
+                throw new LayoutException("layout: 'maintenance.path' is required for marker mode");
             }
 
             self::assertRemotePath(trim($path), 'maintenance.path');
@@ -484,7 +484,7 @@ final class Layout
             return ['type' => 'commands', 'down' => $down, 'up' => $up];
         }
 
-        throw new RuntimeException("layout: 'maintenance.type' must be 'marker' or 'commands'");
+        throw new LayoutException("layout: 'maintenance.type' must be 'marker' or 'commands'");
     }
 
 
@@ -495,14 +495,14 @@ final class Layout
     private static function commandList(mixed $value, string $key): array
     {
         if ( ! is_array($value) || $value === []) {
-            throw new RuntimeException("layout: '{$key}' must be a non-empty list");
+            throw new LayoutException("layout: '{$key}' must be a non-empty list");
         }
 
         $commands = [];
 
         foreach ($value as $command) {
             if ( ! is_string($command) || trim($command) === '') {
-                throw new RuntimeException("layout: '{$key}' items must be non-empty strings");
+                throw new LayoutException("layout: '{$key}' items must be non-empty strings");
             }
 
             $commands[] = trim($command);
@@ -523,13 +523,13 @@ final class Layout
         }
 
         if ( ! is_array($value)) {
-            throw new RuntimeException("layout: 'build' must be an object");
+            throw new LayoutException("layout: 'build' must be an object");
         }
 
         $composer = $value['composer'] ?? true;
 
         if ( ! is_bool($composer)) {
-            throw new RuntimeException("layout: 'build.composer' must be a boolean");
+            throw new LayoutException("layout: 'build.composer' must be a boolean");
         }
 
         $include = self::stringList($value['include'] ?? [], 'build.include');
@@ -538,13 +538,13 @@ final class Layout
         $platform = $value['platform'] ?? 'remote';
 
         if ( ! is_string($platform) || trim($platform) === '') {
-            throw new RuntimeException("layout: 'build.platform' must be 'remote' or a version");
+            throw new LayoutException("layout: 'build.platform' must be 'remote' or a version");
         }
 
         $platform = trim($platform);
 
         if ($platform !== 'remote' && preg_match('/\A\d+\.\d+(\.\d+)?\z/', $platform) !== 1) {
-            throw new RuntimeException("layout: 'build.platform' must be 'remote' or a version like 8.3");
+            throw new LayoutException("layout: 'build.platform' must be 'remote' or a version like 8.3");
         }
 
         if ($include === [] && $composer) {
@@ -576,11 +576,11 @@ final class Layout
     private static function assertRelativePath(string $path, string $label): void
     {
         if ($path === '' || str_contains($path, "\0") || str_contains($path, '\\')) {
-            throw new RuntimeException("layout: '{$label}' is invalid");
+            throw new LayoutException("layout: '{$label}' is invalid");
         }
 
         if (str_starts_with($path, '/') || preg_match('#(^|/)\.{1,2}(/|$)#', $path) === 1) {
-            throw new RuntimeException("layout: '{$label}' must be a safe relative path");
+            throw new LayoutException("layout: '{$label}' must be a safe relative path");
         }
     }
 
@@ -588,11 +588,11 @@ final class Layout
     private static function assertRelativePattern(string $pattern, string $label): void
     {
         if ($pattern === '' || str_contains($pattern, "\0") || str_contains($pattern, '\\')) {
-            throw new RuntimeException("layout: '{$label}' is invalid");
+            throw new LayoutException("layout: '{$label}' is invalid");
         }
 
         if (str_starts_with($pattern, '/') || preg_match('#(^|/)\.{1,2}(/|$)#', $pattern) === 1) {
-            throw new RuntimeException("layout: '{$label}' must be a safe relative pattern");
+            throw new LayoutException("layout: '{$label}' must be a safe relative pattern");
         }
     }
 
@@ -628,7 +628,7 @@ final class Layout
             return ['webroot', substr($path, 9)];
         }
 
-        throw new RuntimeException("layout: path must start with \$root or \$webroot: {$path}");
+        throw new LayoutException("layout: path must start with \$root or \$webroot: {$path}");
     }
 
 

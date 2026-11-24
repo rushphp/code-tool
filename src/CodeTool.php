@@ -57,6 +57,6 @@ final class CodeTool implements ToolInterface
     /** @return list<string> */
     public function install(string $projectRoot): array
     {
-        return (new Initializer($projectRoot, layout: Layout::fromProject($projectRoot)))->run();
+        return (new Initializer($projectRoot))->run();
     }
 }

@@ -2,11 +2,12 @@
 
 namespace Rush\Tool\Code\Release;
 
-use RuntimeException;
+use Rush\Support\FileSystem;
+use Rush\Tool\Code\Exception\ReleaseException;
 use Rush\Tool\Code\Remote\RemoteFiles;
 use Rush\Tool\Code\Remote\Scp;
 use Rush\Tool\Code\Ssh;
-use Rush\Support\FileSystem;
+use Rush\Tool\Code\Support\Json;
 use Rush\Tool\Code\Target;
 
 
@@ -24,22 +25,28 @@ final class ReleaseExporter
     /** @return array{archive: string, manifest: ReleaseManifest, temporary: bool} */
     public function export(): array
     {
+        return $this->exportRelease()->toArray();
+    }
+
+
+    public function exportRelease(): ReleaseExport
+    {
         $current = $this->remote->readCurrent();
 
         if ($current === null) {
-            throw new RuntimeException('source has no current release');
+            throw new ReleaseException('source has no current release');
         }
 
         $status = $current['status'] ?? null;
 
         if ($status !== null && $status !== 'current') {
-            throw new RuntimeException('source is not in current state');
+            throw new ReleaseException('source is not in current state');
         }
 
         $releaseId = $current['releaseId'] ?? null;
 
         if ( ! is_string($releaseId) || $releaseId === '') {
-            throw new RuntimeException('source has no current release');
+            throw new ReleaseException('source has no current release');
         }
 
         $remoteArchive = $this->target->stateDir() .'/releases/'. $releaseId .'/release.tar.gz';
@@ -51,7 +58,7 @@ final class ReleaseExporter
         );
 
         if ( ! $available->ok()) {
-            throw new RuntimeException("source release artifact not found: {$releaseId}");
+            throw new ReleaseException("source release artifact not found: {$releaseId}");
         }
 
         $directory = FileSystem::temporaryDirectory('rush-release-');
@@ -62,33 +69,16 @@ final class ReleaseExporter
         $this->scp->download($remoteArchive, $archive);
         $this->scp->download($remoteManifest, $manifestPath);
 
-        $raw = file_get_contents($manifestPath);
-
-        if ($raw === false) {
-            throw new RuntimeException('could not read downloaded release manifest');
-        }
-
-        $data = json_decode($raw, true);
-
-        if ( ! is_array($data)) {
-            throw new RuntimeException('invalid downloaded release manifest');
-        }
-
-        /** @var array<string, mixed> $data */
-        $manifest = ReleaseManifest::fromArray($data);
+        $manifest = ReleaseManifest::fromArray(Json::read($manifestPath, 'invalid downloaded release manifest'));
 
         if ($manifest->artifactHash !== null) {
             $actual = (new ArtifactVerifier())->hash($archive);
 
             if ( ! hash_equals($manifest->artifactHash, $actual)) {
-                throw new RuntimeException("artifact hash mismatch: {$releaseId}");
+                throw new ReleaseException("artifact hash mismatch: {$releaseId}");
             }
         }
 
-        return [
-            'archive' => $archive,
-            'manifest' => $manifest,
-            'temporary' => true,
-        ];
+        return new ReleaseExport($archive, $manifest, $directory);
     }
 }

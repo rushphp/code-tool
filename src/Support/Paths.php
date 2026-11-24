@@ -2,11 +2,13 @@
 
 namespace Rush\Tool\Code\Support;
 
+use Rush\Tool\Code\Deploy\DeployPaths;
+
 
 final class Paths
 {
     public static function override(string $projectRoot, string $targetName, string $tree): string
     {
-        return rtrim($projectRoot, '/') .'/.rush/code/override/'. $targetName .'/'. $tree;
+        return DeployPaths::localOverride($projectRoot, $targetName, $tree);
     }
 }
