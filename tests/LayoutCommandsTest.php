@@ -158,11 +158,21 @@ test('layout:validate fails when a publish source is missing', function (): void
     );
 
     $command = new LayoutValidateCommand($root);
+    $stdout = fopen('php://memory', 'w+');
+    $stderr = fopen('php://memory', 'w+');
 
-    expect($command->run(
-        Input::parse([], $command->options()),
-        DeployFixtures::output(),
-    ))->toBe(ExitCode::CheckFailed->value);
+    if ($stdout === false || $stderr === false) {
+        throw new RuntimeException('could not open output streams');
+    }
+
+    $code = $command->run(Input::parse([], $command->options()), new \Rush\Manager\Output($stdout, $stderr));
+
+    rewind($stderr);
+    $errors = (string) stream_get_contents($stderr);
+
+    expect($code)->toBe(ExitCode::CheckFailed->value)
+        ->and($errors)->toContain('publish source missing: missing')
+        ->and($errors)->toContain('layout invalid: 1 error(s)');
 
     FileSystem::removeDir($root);
 });

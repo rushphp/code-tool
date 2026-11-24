@@ -129,3 +129,20 @@ test('does not overwrite customized redirect stubs', function () {
     expect(file_get_contents($root .'/.rush/code/stub/index.php'))->toBe('custom-index')
         ->and(file_get_contents($root .'/.rush/code/stub/.htaccess'))->toBe('custom-htaccess');
 });
+
+
+test('creates the base control layout without code.layout.json', function () {
+    $root = sys_get_temp_dir() .'/code-install-bare-'. bin2hex(random_bytes(6));
+    mkdir($root, 0700, true);
+    file_put_contents($root .'/example.json', '{"global":{},"targets":{}}');
+
+    $lines = (new Initializer($root, $root .'/example.json'))->run();
+
+    expect(is_dir($root .'/.rush/code/auth'))->toBeTrue()
+        ->and(is_dir($root .'/.rush/code/override/production'))->toBeTrue()
+        ->and(is_file($root .'/.rush/code/config.json'))->toBeTrue()
+        ->and(is_file($root .'/.rush/code/stub/index.php'))->toBeTrue()
+        ->and($lines)->toContain('created .rush/code');
+
+    \Rush\Support\FileSystem::removeDir($root);
+});

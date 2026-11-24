@@ -112,17 +112,21 @@ final class DeployFixtures
 
 
 
-    public static function output(mixed $stream = null): Output
+    public static function output(mixed $stream = null, mixed $stderr = null): Output
     {
         if ($stream === null) {
             $stream = fopen('php://memory', 'w+');
         }
 
-        if ( ! is_resource($stream)) {
+        if ($stderr === null) {
+            $stderr = fopen('php://memory', 'w+');
+        }
+
+        if ( ! is_resource($stream) || ! is_resource($stderr)) {
             throw new RuntimeException('could not open output stream');
         }
 
-        return new Output($stream);
+        return new Output($stream, $stderr);
     }
 
 

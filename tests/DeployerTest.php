@@ -583,3 +583,39 @@ test('rollback restores storage when the backup contains it', function () {
         ->toContain('webroot.tar.gz')
         ->toContain('.rush/code/override/staging/application/');
 });
+
+
+test('push preserves the release pipeline order', function () {
+    $root = deployDeployerWorkspace();
+    $shell = deployDeployerShell();
+    $deployer = deployTestDeployer($root, DeployFixtures::target(), $shell);
+
+    $deployer->push();
+
+    $calls = array_map(
+        static fn (array $call): string => implode(' ', $call['command']),
+        $shell->calls,
+    );
+
+    $position = static function (string $needle) use ($calls): int {
+        foreach ($calls as $index => $call) {
+            if (str_contains($call, $needle)) {
+                return $index;
+            }
+        }
+
+        return -1;
+    };
+
+    $snapshot = $position('root.tar.gz');
+    $transfer = $position('/public/');
+    $verify = $position('%{http_code} -L');
+    $publish = $position('release.tar.gz');
+    $current = $position("cat > '/srv/app/.deploy/current.json'");
+
+    expect($snapshot)->toBeGreaterThanOrEqual(0)
+        ->and($transfer)->toBeGreaterThan($snapshot)
+        ->and($verify)->toBeGreaterThan($transfer)
+        ->and($publish)->toBeGreaterThan($verify)
+        ->and($current)->toBeGreaterThan($publish);
+});
