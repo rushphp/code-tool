@@ -27,10 +27,17 @@ Habilite no `rush.json`:
 }
 ```
 
+`rush install` cria o layout local de controle em `.rush/code` mesmo antes de
+`code.layout.json` existir. Os comandos de deploy continuam exigindo um layout válido.
+
 ## 🧱 Layout (obrigatório)
 
 O `code.layout.json` na raiz do projeto define o que é publicado e como. Ele
 não contém credenciais e é separado do `rush.json`.
+
+> Nota para shared host: a ferramenta assume uma chave SSH única por host. O
+operador e os eventos são trilha de auditoria, não fronteira de autorização;
+coordene deploys de produção com o time.
 
 ```json
 {
