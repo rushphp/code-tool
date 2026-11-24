@@ -16,6 +16,9 @@ Shared-host code delivery for [RUSH](https://github.com/rushphp/rush).
 composer require --dev rushphp/code-tool
 ```
 
+This also installs the RUSH runtime (`rushphp/rush`) in the development
+context, so `vendor/bin/rush` is available.
+
 Enable it in `rush.json`:
 
 ```json

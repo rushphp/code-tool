@@ -17,6 +17,9 @@ Entrega de código para hospedagem compartilhada com o
 composer require --dev rushphp/code-tool
 ```
 
+Isso também instala o runtime do RUSH (`rushphp/rush`) no contexto de
+desenvolvimento, disponibilizando `vendor/bin/rush`.
+
 Habilite no `rush.json`:
 
 ```json
