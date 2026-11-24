@@ -41,12 +41,12 @@
     "require": {
         "php": "^8.3",
         "rushphp/contract": "^0.2",
-        "rushphp/support": "^0.2"
+        "rushphp/support": "^0.2",
+        "rushphp/rush": "^0.2"
     },
     "require-dev": {
         "phpstan/phpstan": "^2.2",
         "pestphp/pest": "^3.8",
-        "rushphp/rush": "^0.2",
         "rushphp/testing": "^0.1"
     },
     "scripts": {
